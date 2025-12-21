@@ -14,9 +14,9 @@ class RGBController:
     MIN_FRAME_INTERVAL = 0.008  # ~120 FPS max (8ms minimum between frames)
     DEFAULT_ANIMATION_FPS = 60  # Default target FPS for animations
 
-    # Hard maximum brightness multiplier to prevent overcurrent / power issues
-    # This cap is enforced regardless of what value is passed to set_brightness
-    MAX_BRIGHTNESS_MULTIPLIER = 0.25  # 25%
+    # Maximum brightness multiplier (1.0 = full brightness)
+    # Actual brightness is controlled via config's led_brightness setting
+    MAX_BRIGHTNESS_MULTIPLIER = 1.0
 
     def __init__(self, led_count: int = 93):
         self.led_count = led_count

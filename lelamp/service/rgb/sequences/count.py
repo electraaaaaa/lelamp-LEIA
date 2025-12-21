@@ -6,10 +6,10 @@ from . import register_animation, get_frame_interval
 
 @register_animation(
     name="count",
-    description="Sequential LED count from 0 to 93 - lights up each LED one by one with 0.5s delay. Good for demos and testing."
+    description="Sequential LED count - lights up each LED one by one with 0.5s delay. Good for demos and testing."
 )
 def count(controller, color: Optional[Tuple[int, int, int]] = None, duration: float = None):
-    """Count through LEDs sequentially from 0 to 93"""
+    """Count through LEDs sequentially from first to last."""
     # Handle None duration - if not specified, run through all LEDs once
     if duration is None:
         duration = controller.led_count * 0.5  # 0.5s per LED

@@ -17,9 +17,9 @@ class RGBDriver(ABC):
     WS281x-family addressable RGB LEDs on different Raspberry Pi models.
     """
 
-    # Hard maximum brightness (0-255 scale) to prevent overcurrent / power issues
-    # 25% of 255 = 63
-    MAX_BRIGHTNESS = 63
+    # Maximum brightness (0-255 scale)
+    # Actual brightness is controlled via config's led_brightness setting
+    MAX_BRIGHTNESS = 255
 
     def __init__(self, led_count: int):
         self.led_count = led_count

@@ -118,7 +118,7 @@ async def set_rgb_enabled(request: EnableRequest):
 
 @router.post("/test")
 async def test_rgb():
-    """Run RGB welcome animation test."""
+    """Run RGB led_test animation (R->G->B->White, one LED at a time)."""
     try:
         if g.rgb_service is None:
             return {
@@ -127,7 +127,46 @@ async def test_rgb():
             }
 
         config = load_config()
-        brightness = config.get("rgb", {}).get("led_brightness", 50)
+        brightness = config.get("rgb", {}).get("led_brightness", 25)
+        g.rgb_service.set_brightness(brightness)
+
+        # Play led_test animation (R, G, B, White cycle)
+        # Duration based on LED count: 4 colors * led_count * 0.1s delay
+        led_count = config.get("rgb", {}).get("led_count", 61)
+        duration = 4 * led_count * 0.1 + 1.0  # One full cycle plus buffer
+
+        g.rgb_service.handle_event("animation", {
+            "name": "led_test",
+            "duration": duration
+        })
+
+        # Schedule clear after animation completes
+        asyncio.create_task(_clear_leds_after_delay(duration + 1.0))
+
+        return {
+            "success": True,
+            "message": "LED test started (R->G->B->White, one LED at a time)",
+            "animation": "led_test",
+            "duration": duration
+        }
+
+    except Exception as e:
+        logger.error(f"Error starting RGB test: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/test/welcome")
+async def test_rgb_welcome():
+    """Run RGB welcome animation (fancy rainbow effects)."""
+    try:
+        if g.rgb_service is None:
+            return {
+                "success": False,
+                "error": "RGB service not running. Check that rgb.enabled=true and restart."
+            }
+
+        config = load_config()
+        brightness = config.get("rgb", {}).get("led_brightness", 25)
         g.rgb_service.set_brightness(brightness)
 
         # Play welcome animation
@@ -137,7 +176,7 @@ async def test_rgb():
             "duration": duration
         })
 
-        # Schedule clear after animation completes (animation runs in background thread)
+        # Schedule clear after animation completes
         asyncio.create_task(_clear_leds_after_delay(duration + 1.0))
 
         return {
@@ -148,7 +187,7 @@ async def test_rgb():
         }
 
     except Exception as e:
-        logger.error(f"Error starting RGB test: {e}")
+        logger.error(f"Error starting RGB welcome test: {e}")
         return {"success": False, "error": str(e)}
 
 

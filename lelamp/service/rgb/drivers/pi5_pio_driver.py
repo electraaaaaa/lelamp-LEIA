@@ -95,15 +95,26 @@ class Pi5PioDriver(RGBDriver):
 
     def initialize(self) -> bool:
         """Initialize the NeoPixel PIO hardware."""
+        import time
+
+        # Clean up any previous instance first (important after crashes)
+        if self._pixels is not None:
+            self.logger.warning("Previous NeoPixel instance exists, cleaning up first...")
+            self.cleanup()
+            time.sleep(0.2)  # Give PIO time to release
+
         if not self._check_pio_available():
             return False
 
         try:
+            self.logger.info(f"Initializing Pi5 PIO driver for {self.led_count} LEDs on GPIO {self._pin_num}...")
+
             import board
             import neopixel
 
             # Get board pin
             self._board_pin = self._get_board_pin(self._pin_num)
+            self.logger.debug(f"Board pin resolved: {self._board_pin}")
 
             # Get pixel order constant
             if self._pixel_order_str == "RGB":
@@ -115,6 +126,8 @@ class Pi5PioDriver(RGBDriver):
             else:
                 order = neopixel.GRB  # Default for WS2812
 
+            self.logger.debug(f"Creating NeoPixel object with brightness={self._brightness}/255...")
+
             # Create NeoPixel object
             self._pixels = neopixel.NeoPixel(
                 self._board_pin,
@@ -123,6 +136,14 @@ class Pi5PioDriver(RGBDriver):
                 auto_write=self._auto_write,
                 pixel_order=order,
             )
+
+            # Brief pause after creation
+            time.sleep(0.05)
+
+            # Test with a quick black frame to verify communication
+            self.logger.debug("Testing LED communication with black frame...")
+            self._pixels.fill((0, 0, 0))
+            self._pixels.show()
 
             self._initialized = True
             self.logger.info(
@@ -142,9 +163,27 @@ class Pi5PioDriver(RGBDriver):
                 "Check /dev/pio0 permissions or run with sudo."
             )
             return False
+        except OSError as e:
+            self.logger.error(
+                f"OS error during initialization (PIO/GPIO conflict?): {e}. "
+                "Try rebooting the Pi to reset GPIO state."
+            )
+            self._cleanup_on_error()
+            return False
         except Exception as e:
             self.logger.error(f"Failed to initialize Pi5 PIO driver: {e}")
+            self._cleanup_on_error()
             return False
+
+    def _cleanup_on_error(self):
+        """Minimal cleanup after initialization failure."""
+        if self._pixels is not None:
+            try:
+                self._pixels.deinit()
+            except Exception:
+                pass
+            self._pixels = None
+        self._initialized = False
 
     def render(self, frame: List[Tuple[int, int, int]]) -> None:
         """Write frame to LED strip via PIO."""
@@ -160,6 +199,12 @@ class Pi5PioDriver(RGBDriver):
             # Push to hardware
             self._pixels.show()
 
+        except OSError as e:
+            # PIO/GPIO errors - these can crash the Pi if we keep hammering
+            self.logger.error(f"PIO/GPIO error rendering frame: {e}")
+            # Brief pause to prevent rapid error loops
+            import time
+            time.sleep(0.1)
         except Exception as e:
             self.logger.error(f"Error rendering frame: {e}")
 
@@ -179,33 +224,23 @@ class Pi5PioDriver(RGBDriver):
             try:
                 self._pixels.fill((0, 0, 0))
                 self._pixels.show()
-            except Exception:
-                pass
+            except Exception as e:
+                self.logger.warning(f"Error turning off LEDs during cleanup: {e}")
 
-            # Deinit neopixel
+            # Deinit neopixel - this properly releases PIO resources
             try:
                 self._pixels.deinit()
-            except Exception:
-                pass
+            except Exception as e:
+                self.logger.warning(f"Error deinit neopixel: {e}")
 
             self._pixels = None
 
-        # Force release GPIO via lgpio
-        try:
-            import lgpio
-            # Try to free the GPIO pin on chip 0
-            for chip in [0, 4]:
-                try:
-                    h = lgpio.gpiochip_open(chip)
-                    lgpio.gpio_free(h, self._pin_num)
-                    lgpio.gpiochip_close(h)
-                except Exception:
-                    pass
-        except Exception:
-            pass
+        # NOTE: Do NOT try to manually release GPIO via lgpio!
+        # The neopixel library manages PIO resources internally.
+        # Manually calling lgpio to release pins causes conflicts and crashes.
 
         import time
-        time.sleep(0.1)  # Give time for GPIO to be released
+        time.sleep(0.05)  # Brief pause to let PIO resources release
 
         self._initialized = False
         self.logger.info("Pi5 PIO RGB driver cleaned up")

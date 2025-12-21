@@ -34,14 +34,12 @@ def eye(controller, color: Optional[Tuple[int, int, int]] = None, duration: floa
     led_count = controller.led_count
 
     # Ring structure (outer to inner)
-    rings = controller._rings if controller.has_rings() else [
-        {"start": 0, "end": 31, "count": 32},
-        {"start": 32, "end": 55, "count": 24},
-        {"start": 56, "end": 71, "count": 16},
-        {"start": 72, "end": 83, "count": 12},
-        {"start": 84, "end": 91, "count": 8},
-        {"start": 92, "end": 92, "count": 1},
-    ]
+    # Use configured rings, or fallback to treating all LEDs as one ring
+    if controller.has_rings():
+        rings = controller._rings
+    else:
+        # Fallback: treat all LEDs as a single ring
+        rings = [{"start": 0, "end": led_count - 1, "count": led_count}]
     num_rings = len(rings)
 
     # Current state for smooth interpolation

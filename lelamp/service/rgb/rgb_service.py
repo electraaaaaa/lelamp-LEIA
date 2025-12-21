@@ -16,30 +16,25 @@ class RGBService(ServiceBase):
         - Simulator mode for development
     """
 
-    # Hard maximum brightness to prevent overcurrent / power issues
-    # This cap is enforced regardless of config or API calls
-    MAX_BRIGHTNESS_PERCENT = 25
-
     def __init__(self,
                  led_count: int = 93,
                  led_pin: int = 10,
                  led_freq_hz: int = 800000,
                  led_dma: int = 10,
-                 led_brightness: int = 70,
+                 led_brightness: int = 25,
                  led_invert: bool = False,
                  led_channel: int = 0,
                  rings: Optional[List[dict]] = None,
                  default_animation: str = "aura_glow",
-                 default_color: Tuple[int, int, int] = (255, 255, 255),
+                 default_color: Tuple[int, int, int] = (0, 0, 0),
                  force_driver: Optional[str] = None):
         super().__init__("rgb")
 
         self.led_count = led_count
-        # Enforce maximum brightness cap to prevent overcurrent
-        led_brightness = min(led_brightness, self.MAX_BRIGHTNESS_PERCENT)
+        # Brightness comes from config (0-100 percentage)
+        self._brightness_percent = max(0, min(100, led_brightness))
         # Convert brightness from 0-100 percentage to 0-255 for hardware
-        self._brightness_percent = led_brightness
-        brightness_255 = int((led_brightness / 100) * 255)
+        brightness_255 = int((self._brightness_percent / 100) * 255)
 
         # Get appropriate driver for this platform
         # Note: get_driver() now tests initialization and falls back to working drivers
@@ -92,6 +87,9 @@ class RGBService(ServiceBase):
         # Sleep mode - blocks all RGB changes when enabled
         self._sleep_mode = False
 
+        # Ensure LEDs start OFF (prevents random white on power-up)
+        self.clear()
+
     def _render_frame_to_strip(self, frame: List[Tuple[int, int, int]]):
         """Callback to render a frame via the hardware driver"""
         # Use lock to ensure only one render happens at a time
@@ -115,9 +113,8 @@ class RGBService(ServiceBase):
         print(f"🔒 RGB SERVICE: Sleep mode set to {enabled}")
 
     def set_brightness(self, brightness_percent: int):
-        """Set LED brightness (0-100 percent, capped at MAX_BRIGHTNESS_PERCENT)"""
-        # Enforce maximum brightness cap to prevent overcurrent
-        brightness_percent = max(0, min(self.MAX_BRIGHTNESS_PERCENT, brightness_percent))
+        """Set LED brightness (0-100 percent)"""
+        brightness_percent = max(0, min(100, brightness_percent))
         self._brightness_percent = brightness_percent
         brightness_255 = int((brightness_percent / 100) * 255)
 

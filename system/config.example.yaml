@@ -294,7 +294,7 @@ rgb:
   led_freq_hz: 800000
   fps: 1
   led_dma: 10
-  led_brightness: 50
+  led_brightness: 25
   led_invert: false
   led_channel: 0
   default_animation: ripple
@@ -308,19 +308,27 @@ rgb:
   # Pi 5 with pin 10: lgpio is preferred (no kernel module needed)
   force_driver: null
   rings:
-  - name: inner
+  - name: ring_6
     start: 0
-    end: 19
-    count: 20
-  - name: middle
-    start: 20
-    end: 39
-    count: 20
-  - name: outer
-    start: 40
-    end: 59
-    count: 20
-  - name: extra_outer
-    start: 60
+    end: 31
+    count: 32
+  - name: ring_5
+    start: 32
+    end: 55
+    count: 24
+  - name: ring_4
+    start: 56
+    end: 71
+    count: 16
+  - name: ring_3
+    start: 72
+    end: 83
+    count: 12
+  - name: ring_2
+    start: 84
+    end: 91
+    count: 8
+  - name: ring_1
+    start: 92
     end: 92
-    count: 33
+    count: 1
