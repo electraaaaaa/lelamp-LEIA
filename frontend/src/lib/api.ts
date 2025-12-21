@@ -84,6 +84,11 @@ export const calibrationApi = {
       range_maxs?: Record<string, number>
     }>('/setup/calibration/positions'),
 
+  prepareHoming: () =>
+    fetchApi<{ success: boolean; message?: string; error?: string }>('/setup/calibration/prepare-homing', {
+      method: 'POST',
+    }),
+
   recordHoming: () =>
     fetchApi<{ success: boolean; error?: string }>('/setup/calibration/record-homing', {
       method: 'POST',

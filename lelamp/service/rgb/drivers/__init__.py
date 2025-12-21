@@ -4,10 +4,8 @@ RGB LED Driver Factory
 Provides automatic driver selection based on Raspberry Pi version.
 
 Supported drivers:
-- lgpio: Bitbanging driver using lgpio (Pi 5, any GPIO, no kernel module)
+- pio: PIO-based driver for Pi 5 (uses adafruit neopixel with PIO, GPIO 10)
 - rpi4: PWM-based driver for Pi 3/4 (uses rpi_ws281x)
-- rpi5: PWM-based driver for Pi 5 (requires kernel module)
-- spi: SPI-based driver for Pi 5 (uses neopixel_spi, GPIO 10)
 - simulator: No-op driver for development/testing
 """
 
@@ -22,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 def get_driver(
     led_count: int,
-    led_pin: int = 12,
+    led_pin: int = 10,
     led_freq_hz: int = 800000,
     led_dma: int = 10,
     led_brightness: int = 255,
@@ -36,13 +34,13 @@ def get_driver(
 
     Args:
         led_count: Number of LEDs in the strip
-        led_pin: GPIO pin (default 12 for PWM0, use 10 for SPI on Pi5)
+        led_pin: GPIO pin (default 10 for Pi5 PIO/SPI)
         led_freq_hz: LED signal frequency (800kHz for WS2812)
         led_dma: DMA channel (10 for Pi4, may differ for Pi5)
         led_brightness: Hardware brightness (0-255)
         led_invert: Invert signal (for level shifters)
         led_channel: PWM channel
-        force_driver: Override auto-detection ("lgpio", "rpi4", "rpi5", "spi", "simulator")
+        force_driver: Override auto-detection ("pio", "rpi4", "simulator")
         pixel_order: Color order for LEDs (GRB, RGB, RGBW, GRBW)
 
     Returns:
@@ -60,12 +58,8 @@ def get_driver(
         logger.info(f"Detected Pi version: {pi_version}, Memory: {memory_mb}MB")
 
         if pi_version == 5:
-            # On Pi 5, prefer SPI driver if using GPIO 10 (SPI MOSI pin)
-            # This avoids the need for kernel module installation
-            if led_pin == 10:
-                driver_name = "spi"
-            else:
-                driver_name = "rpi5"
+            # Pi 5 uses PIO driver (works on any GPIO, default GPIO 10)
+            driver_name = "pio"
         elif pi_version in (3, 4):
             driver_name = "rpi4"
         else:
@@ -74,28 +68,8 @@ def get_driver(
             driver_name = "simulator"
 
     # Import and instantiate the appropriate driver
-    if driver_name == "spi":
-        # On Pi 5, try drivers in order: lgpio → PIO → SPI → rpi5
-        # lgpio is preferred as it works without extra kernel modules or libraries
-        try:
-            from .lgpio_driver import LgpioDriver
-            driver = LgpioDriver(
-                led_count=led_count,
-                led_pin=led_pin,
-                led_brightness=led_brightness,
-                pixel_order=pixel_order,
-            )
-            # Test initialization before returning
-            if driver.initialize():
-                logger.info("Using lgpio RGB driver (GPIO bitbanging)")
-                return driver
-            else:
-                logger.warning("lgpio driver failed to initialize, trying fallback")
-                driver.cleanup()
-        except Exception as e:
-            logger.warning(f"lgpio driver not available: {e}")
-
-        # Try PIO driver as fallback
+    if driver_name == "pio":
+        # Pi 5 PIO driver - hardware-accurate timing via RP1 PIO
         try:
             from .pi5_pio_driver import Pi5PioDriver
             driver = Pi5PioDriver(
@@ -106,68 +80,15 @@ def get_driver(
                 auto_write=False,
             )
             if driver.initialize():
-                logger.info("Using Pi5 PIO RGB driver (GPIO 10)")
+                logger.info(f"Using Pi5 PIO RGB driver (GPIO {led_pin})")
                 return driver
             else:
-                logger.warning("Pi5 PIO driver failed to initialize, trying fallback")
+                logger.error("Pi5 PIO driver failed to initialize")
                 driver.cleanup()
         except Exception as e:
-            logger.warning(f"Pi5 PIO driver not available: {e}")
-
-        # Try SPI as fallback
-        try:
-            from .spi_driver import SpiDriver
-            driver = SpiDriver(
-                led_count=led_count,
-                led_brightness=led_brightness,
-                pixel_order=pixel_order,
-                spi_bus=0,
-                auto_write=False,
-            )
-            if driver.initialize():
-                logger.info("Using SPI RGB driver (neopixel_spi on GPIO 10)")
-                return driver
-            else:
-                logger.warning("SPI driver failed to initialize, trying fallback")
-                driver.cleanup()
-        except Exception as e:
-            logger.warning(f"SPI driver not available: {e}")
-
-        # Fall back to rpi5 driver
-        driver_name = "rpi5"
-
-    if driver_name == "lgpio":
-        try:
-            from .lgpio_driver import LgpioDriver
-            logger.info("Using lgpio RGB driver (GPIO bitbanging)")
-            return LgpioDriver(
-                led_count=led_count,
-                led_pin=led_pin,
-                led_brightness=led_brightness,
-                pixel_order=pixel_order,
-            )
-        except ImportError as e:
-            logger.error(f"Failed to import lgpio driver: {e}")
-            logger.warning("Falling back to simulator driver")
-            driver_name = "simulator"
-
-    if driver_name == "rpi5":
-        try:
-            from .rpi5_driver import Rpi5Driver
-            logger.info("Using RPi5 RGB driver (kernel module)")
-            return Rpi5Driver(
-                led_count=led_count,
-                led_pin=led_pin,
-                led_freq_hz=led_freq_hz,
-                led_dma=led_dma,
-                led_brightness=led_brightness,
-                led_invert=led_invert,
-                led_channel=led_channel,
-            )
-        except ImportError as e:
-            logger.error(f"Failed to import RPi5 driver: {e}")
-            logger.warning("Falling back to simulator driver")
-            driver_name = "simulator"
+            logger.error(f"Pi5 PIO driver error: {e}")
+        # Fall back to simulator
+        driver_name = "simulator"
 
     if driver_name == "rpi4":
         try:

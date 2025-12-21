@@ -5,6 +5,7 @@ Provides enable/disable functionality for configurable services.
 Now with live start/stop - changes take effect immediately without restart.
 """
 
+import asyncio
 import logging
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -56,7 +57,7 @@ def set_nested_value(config: dict, path: str, value) -> dict:
     return config
 
 
-def _apply_service_change(service: str, enabled: bool) -> str:
+async def _apply_service_change(service: str, enabled: bool) -> str:
     """Apply a service change at runtime. Returns status message."""
     animation = get_animation_service()
     agent = get_lelamp_agent()
@@ -66,18 +67,53 @@ def _apply_service_change(service: str, enabled: bool) -> str:
         if service == "motors":
             if animation:
                 if enabled:
+                    # Connect robot if not connected
+                    if animation.robot and not animation.robot.is_connected:
+                        try:
+                            animation.robot.connect(calibrate=False)
+                            logging.info("Robot connected")
+                        except Exception as e:
+                            return f"Failed to connect robot: {e}"
+
                     # Start the animation service if not running
                     if not animation._running.is_set():
                         animation.start()
-                        return "Motors started"
-                    return "Motors already running"
+
+                    # Start idle animation
+                    animation.dispatch("play", animation.idle_recording)
+                    return "Motors connected and started"
                 else:
-                    # Stop animations and release motors
+                    # Safety: Play sleep animation first to park lamp safely
+                    if animation.robot and animation.robot.is_connected:
+                        try:
+                            # Apply Gentle preset for safe, slow movement
+                            animation.robot.apply_preset("Gentle")
+                            logging.info("Applied Gentle preset for safe shutdown")
+                        except Exception as e:
+                            logging.warning(f"Could not apply Gentle preset: {e}")
+
+                        try:
+                            # Play sleep animation to park lamp
+                            animation.dispatch("play", "sleep")
+                            logging.info("Playing sleep animation before motor shutdown...")
+                            # Wait for sleep animation to complete
+                            await asyncio.sleep(5.0)
+                            logging.info("Sleep animation complete")
+                        except Exception as e:
+                            logging.warning(f"Could not play sleep animation: {e}")
+
+                        # Now safe to release motors
+                        try:
+                            animation.robot.bus.disable_torque()
+                            animation.robot.bus.disconnect()
+                            logging.info("Robot disconnected")
+                        except Exception as e:
+                            logging.warning(f"Error disconnecting robot: {e}")
+
+                    # Stop animations
                     animation._current_recording = None
                     animation._current_actions = []
-                    if animation.robot and animation.robot.bus:
-                        animation.robot.bus.disable_torque()
-                    return "Motors stopped and released"
+                    return "Motors parked safely and disconnected"
             return "Animation service not available"
 
         elif service == "face_tracking":
@@ -246,9 +282,9 @@ async def get_services_status():
             else:
                 running = False
         elif service_key == "motors":
-            # Check if animation service is actually running
+            # Check if animation service is running AND robot is connected
             if animation:
-                running = animation._running.is_set()
+                running = animation._running.is_set() and animation.robot and animation.robot.is_connected
             else:
                 running = False
         elif service_key == "motor_tracking":
@@ -291,7 +327,7 @@ async def toggle_service(request: ServiceToggleRequest):
     save_config(config)
 
     # Apply change at runtime
-    status_msg = _apply_service_change(request.service, request.enabled)
+    status_msg = await _apply_service_change(request.service, request.enabled)
     logging.info(f"Service toggle: {request.service} -> {request.enabled}: {status_msg}")
 
     return {
@@ -318,7 +354,7 @@ async def enable_service(service: str):
     save_config(config)
 
     # Apply change at runtime
-    status_msg = _apply_service_change(service, True)
+    status_msg = await _apply_service_change(service, True)
     logging.info(f"Service enabled: {service}: {status_msg}")
 
     return {
@@ -345,7 +381,7 @@ async def disable_service(service: str):
     save_config(config)
 
     # Apply change at runtime
-    status_msg = _apply_service_change(service, False)
+    status_msg = await _apply_service_change(service, False)
     logging.info(f"Service disabled: {service}: {status_msg}")
 
     return {

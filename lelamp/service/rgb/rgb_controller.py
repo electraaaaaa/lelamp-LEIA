@@ -14,6 +14,10 @@ class RGBController:
     MIN_FRAME_INTERVAL = 0.008  # ~120 FPS max (8ms minimum between frames)
     DEFAULT_ANIMATION_FPS = 60  # Default target FPS for animations
 
+    # Hard maximum brightness multiplier to prevent overcurrent / power issues
+    # This cap is enforced regardless of what value is passed to set_brightness
+    MAX_BRIGHTNESS_MULTIPLIER = 0.25  # 25%
+
     def __init__(self, led_count: int = 93):
         self.led_count = led_count
         self.logger = logging.getLogger("rgb_controller")
@@ -123,8 +127,9 @@ class RGBController:
             return self._current_frame.copy()
 
     def set_brightness(self, multiplier: float):
-        """Set global brightness multiplier (0.0 to 1.0)"""
-        self._brightness_multiplier = max(0.0, min(1.0, multiplier))
+        """Set global brightness multiplier (0.0 to MAX_BRIGHTNESS_MULTIPLIER)"""
+        # Enforce max brightness to prevent overcurrent
+        self._brightness_multiplier = max(0.0, min(self.MAX_BRIGHTNESS_MULTIPLIER, multiplier))
 
     def get_brightness(self) -> float:
         """Get current brightness multiplier"""

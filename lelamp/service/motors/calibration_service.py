@@ -38,31 +38,62 @@ class CalibrationService:
         self.calibration_data: Dict[str, MotorCalibration] = {}
 
     def connect(self) -> Dict[str, any]:
-        """Connect to the robot without calibration"""
+        """Connect to the robot without calibration.
+
+        The lamp should already be in a safe parked position (sleep animation)
+        with torque disabled. We just need to connect and keep torque off.
+        """
         try:
             if self.robot is None:
                 self.robot = LeLampFollower(self.robot_config)
 
             if not self.robot.is_connected:
-                self.robot.connect(calibrate=False)
+                # Connect with handshake=False to skip motor verification
+                # This is needed for calibration since motors may not respond
+                # reliably to the initial handshake check
+                self.robot.bus.connect(handshake=False)
 
-            # Set all motors to position mode and disable torque for manual movement
+            # Set all motors to position mode
             for motor in self.robot.bus.motors:
                 self.robot.bus.write("Operating_Mode", motor, OperatingMode.POSITION.value)
+
+            # Ensure torque is disabled so user can move lamp by hand
+            # (lamp should already be parked in safe position from sleep animation)
             self.robot.bus.disable_torque()
 
             self.current_step = "connected"
-            logger.info("Connected to robot for calibration")
+            logger.info("Connected to robot for calibration (torque disabled)")
 
             return {"success": True, "step": self.current_step}
         except Exception as e:
             logger.error(f"Failed to connect: {e}")
             return {"success": False, "error": str(e)}
 
+    def prepare_for_homing(self) -> Dict[str, any]:
+        """Disable torque so user can manually position the lamp.
+
+        Call this when user is ready to physically move the lamp.
+        """
+        if not self.robot or not self.robot.is_connected:
+            return {"success": False, "error": "Not connected"}
+
+        try:
+            self.robot.bus.disable_torque()
+            logger.info("Torque disabled - lamp can now be manually positioned")
+            return {"success": True, "message": "Torque disabled. You can now move the lamp by hand."}
+        except Exception as e:
+            logger.error(f"Failed to disable torque: {e}")
+            return {"success": False, "error": str(e)}
+
     def disconnect(self):
         """Disconnect from robot"""
-        if self.robot and self.robot.is_connected:
-            self.robot.disconnect()
+        if self.robot:
+            try:
+                if self.robot.bus.is_connected:
+                    # Disconnect bus directly to avoid errors
+                    self.robot.bus.disconnect(disable_torque=False)
+            except Exception as e:
+                logger.warning(f"Error during disconnect: {e}")
             self.robot = None
         self.current_step = "not_started"
 

@@ -167,10 +167,12 @@ class AudioRouter:
                 while self._running:
                     # Check if processes are still alive
                     if self._capture_process.poll() is not None:
-                        logger.warning("Capture process exited, restarting...")
+                        stderr = self._capture_process.stderr.read().decode() if self._capture_process.stderr else ""
+                        logger.warning(f"Capture process exited (code={self._capture_process.returncode}): {stderr[:200]}")
                         break
                     if self._playback_process.poll() is not None:
-                        logger.warning("Playback process exited, restarting...")
+                        stderr = self._playback_process.stderr.read().decode() if self._playback_process.stderr else ""
+                        logger.warning(f"Playback process exited (code={self._playback_process.returncode}): {stderr[:200]}")
                         break
 
                     # Read audio from capture

@@ -103,8 +103,8 @@ def clear_notifications():
 def load_config():
     """Load configuration from YAML file.
 
-    Uses ~/.lelamp/config.yaml if it exists, otherwise falls back to repo config.yaml.
-    Initializes user data directory and migrates existing files on first run.
+    Always uses ~/.lelamp/config.yaml (no repo fallback).
+    If file doesn't exist, copies from system/config.example.yaml template.
     """
     global CONFIG, CONFIG_PATH
     import shutil

@@ -30,9 +30,9 @@ wifi:
 # Authentication (Clerk)
 # Note: CLERK_SECRET_KEY should be set in ~/.lelamp/.env (not here)
 auth:
-  enabled: false          # Enable Clerk authentication
-  local_bypass: true      # Allow unauthenticated access from local network (192.168.x.x, etc.)
-  clerk_publishable_key: null  # Clerk publishable key (pk_test_xxx or pk_live_xxx)
+  enabled: true           # Enable Clerk authentication
+  local_bypass: false     # Require Clerk authentication even on local network
+  clerk_publishable_key: pk_test_ZXhhY3QtcGVnYXN1cy00Ni5jbGVyay5hY2NvdW50cy5kZXYk
 
 agent:
   enabled: false
@@ -85,7 +85,7 @@ setup:
   motor_ids_configured: []
 motors:
   enabled: true
-  voltage: 7.4
+  voltage: 12
   port: /dev/lelamp
   lamp_id: lelamp
   auto_disable_on_error: true

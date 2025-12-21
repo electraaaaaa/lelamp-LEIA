@@ -60,7 +60,8 @@ class Pi5PioDriver(RGBDriver):
         super().__init__(led_count)
 
         self._pin_num = led_pin
-        self._brightness = led_brightness
+        # Enforce max brightness from base class
+        self._brightness = min(led_brightness, self.MAX_BRIGHTNESS)
         self._pixel_order_str = pixel_order.upper()
         self._auto_write = auto_write
 
@@ -163,12 +164,13 @@ class Pi5PioDriver(RGBDriver):
             self.logger.error(f"Error rendering frame: {e}")
 
     def set_brightness(self, brightness: int) -> None:
-        """Set hardware brightness (0-255)."""
-        self._brightness = max(0, min(255, brightness))
+        """Set hardware brightness (0-255, capped at MAX_BRIGHTNESS)."""
+        # Enforce max brightness from base class to prevent overcurrent
+        self._brightness = max(0, min(self.MAX_BRIGHTNESS, brightness))
 
         if self._pixels is not None:
             self._pixels.brightness = self._brightness / 255.0
-            self.logger.debug(f"Brightness set to {self._brightness}")
+            self.logger.debug(f"Brightness set to {self._brightness} (max={self.MAX_BRIGHTNESS})")
 
     def cleanup(self) -> None:
         """Turn off LEDs and release resources."""

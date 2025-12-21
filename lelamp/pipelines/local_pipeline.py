@@ -80,7 +80,7 @@ class LiveKitVideoStreamer:
         self.config = config
         self.room: Optional["rtc.Room"] = None
         self._connected = False
-        self._room_name = f"lelamp_{get_device_serial_short()}"
+        self._room_name = f"lelamp-{get_device_serial_short()}"
 
         # Load credentials
         self.url = os.getenv("LIVEKIT_URL", "").strip() or _get_env_value("LIVEKIT_URL") or ""

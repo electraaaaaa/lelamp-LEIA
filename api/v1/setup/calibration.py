@@ -4,11 +4,15 @@ Motor calibration API endpoints.
 Provides endpoints for the motor calibration workflow.
 """
 
+import asyncio
+import logging
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional
-from api.deps import load_config, save_config
+from api.deps import load_config, save_config, get_animation_service
 import lelamp.globals as g
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -18,7 +22,13 @@ _calibration_service = None
 
 @router.post("/start")
 async def start_calibration():
-    """Start motor calibration process."""
+    """Start motor calibration process.
+
+    This will:
+    1. Play the sleep animation to safely park the lamp
+    2. Disconnect the animation service from the motors
+    3. Start the calibration service
+    """
     global _calibration_service
 
     try:
@@ -27,6 +37,36 @@ async def start_calibration():
         config = load_config()
         port = config.get("motors", {}).get("port", "/dev/lelamp")
 
+        # Step 1: Gracefully take over from animation service
+        animation = get_animation_service()
+        if animation and animation.robot and animation.robot.is_connected:
+            logger.info("Taking over motors from animation service...")
+
+            # Switch to Gentle preset for safe, slow movement
+            try:
+                animation.robot.apply_preset("Gentle")
+                logger.info("Applied Gentle preset for safe transition")
+            except Exception as e:
+                logger.warning(f"Could not apply Gentle preset: {e}")
+
+            # Play sleep animation to park the lamp safely (tucked position)
+            try:
+                animation.dispatch("play", "sleep")
+                logger.info("Playing sleep animation...")
+                # Wait for sleep animation to complete (5+ seconds)
+                await asyncio.sleep(5.0)
+                logger.info("Sleep animation complete, lamp is parked")
+            except Exception as e:
+                logger.warning(f"Could not play sleep animation: {e}")
+
+            # Now disconnect and release motors - lamp is in safe tucked position
+            try:
+                animation.robot.bus.disconnect(disable_torque=True)
+                logger.info("Disconnected animation service and released motors")
+            except Exception as e:
+                logger.warning(f"Error disconnecting animation robot: {e}")
+
+        # Step 2: Start calibration service
         _calibration_service = CalibrationService(port=port)
         result = _calibration_service.connect()
 
@@ -35,6 +75,7 @@ async def start_calibration():
 
         return result
     except Exception as e:
+        logger.error(f"Failed to start calibration: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -75,6 +116,18 @@ async def get_calibration_positions():
     }
 
 
+@router.post("/prepare-homing")
+async def prepare_for_homing():
+    """Disable torque so user can manually position the lamp.
+
+    Call this when user is ready to physically move the lamp to center position.
+    """
+    if _calibration_service is None:
+        return {"success": False, "error": "Calibration not started"}
+
+    return _calibration_service.prepare_for_homing()
+
+
 @router.post("/record-homing")
 async def record_homing():
     """Record homing positions (center/zero point)."""
@@ -100,6 +153,21 @@ async def record_ranges():
         return {"success": False, "error": "Calibration not started"}
 
     return _calibration_service.record_ranges()
+
+
+async def _reconnect_animation_service():
+    """Reconnect the animation service to motors after calibration."""
+    animation = get_animation_service()
+    if animation and animation.robot:
+        try:
+            if not animation.robot.is_connected:
+                logger.info("Reconnecting animation service to motors...")
+                animation.robot.connect(calibrate=False)
+                # Return to idle animation
+                animation.dispatch("play", animation.idle_recording)
+                logger.info("Animation service reconnected")
+        except Exception as e:
+            logger.error(f"Failed to reconnect animation service: {e}")
 
 
 @router.post("/finalize")
@@ -138,6 +206,9 @@ async def finalize_calibration():
         _calibration_service.disconnect()
         _calibration_service = None
 
+        # Reconnect animation service
+        await _reconnect_animation_service()
+
     return result
 
 
@@ -151,5 +222,8 @@ async def cancel_calibration():
         _calibration_service = None
 
     g.calibration_in_progress = False
+
+    # Reconnect animation service
+    await _reconnect_animation_service()
 
     return {"success": True}

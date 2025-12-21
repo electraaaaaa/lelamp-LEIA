@@ -36,8 +36,9 @@ set -e
 # =============================================================================
 
 REPO_URL="${REPO_URL:-http://192.168.10.10:8083/lelamp/lelamp_v3_runtime.git}"
+REPO_URL="${REPO_URL:-https://github.com/humancomputerlab/lelampv2.git}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
-TARGET_DIR="${TARGET_DIR:-$HOME/lelamp_v3_runtime}"
+TARGET_DIR="${TARGET_DIR:-$HOME/lelampv2}"
 HUB_URL="${HUB_URL:-http://192.168.10.10:8000}"
 LOG_FILE="/var/log/lelamp-oem-install.log"
 

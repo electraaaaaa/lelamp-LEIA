@@ -43,6 +43,11 @@ dependencies = [
     # opencv-python-headless at end + override-dependencies ensures headless is used
     "opencv-python-headless>=4.11.0.86",
     "torchaudio>=2.7.1",
+    "rpi-ws281x>=5.0.0",
+    "lgpio>=0.2.2.0",
+    "adafruit-circuitpython-neopixel>=6.3.18",
+    "adafruit-blinka>=8.68.1",
+    "cryptography==44.0.0",
 ]
 
 [tool.uv.sources]

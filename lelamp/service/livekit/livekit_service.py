@@ -121,7 +121,7 @@ class LiveKitService:
 
         # Load and validate credentials
         self._load_credentials()
-        self._room_name = f"lelamp_{get_device_serial_short()}"
+        self._room_name = f"lelamp-{get_device_serial_short()}"
 
         logger.info(f"LiveKit service initialized (status={self._status.value}, room={self._room_name})")
 
@@ -189,7 +189,7 @@ class LiveKitService:
     @property
     def room_name(self) -> str:
         """Get the device's room name."""
-        return self._room_name or f"lelamp_{get_device_serial_short()}"
+        return self._room_name or f"lelamp-{get_device_serial_short()}"
 
     @property
     def error_message(self) -> Optional[str]:

@@ -18,7 +18,7 @@ class Rpi4Driver(RGBDriver):
     Memory Access) for precise timing without CPU intervention.
 
     Supported pins:
-        - GPIO 12 (PWM0) - default
+        - GPIO 12 (PWM0) - default for Pi4
         - GPIO 13 (PWM1)
         - GPIO 18 (PWM0)
         - GPIO 19 (PWM1)
@@ -43,7 +43,8 @@ class Rpi4Driver(RGBDriver):
         self.led_dma = led_dma
         self.led_invert = led_invert
         self.led_channel = led_channel
-        self._brightness = led_brightness
+        # Enforce max brightness from base class
+        self._brightness = min(led_brightness, self.MAX_BRIGHTNESS)
 
         self._strip = None
 
@@ -107,13 +108,14 @@ class Rpi4Driver(RGBDriver):
             self.logger.error(f"Error rendering frame: {e}")
 
     def set_brightness(self, brightness: int) -> None:
-        """Set hardware brightness (0-255)."""
-        self._brightness = max(0, min(255, brightness))
+        """Set hardware brightness (0-255, capped at MAX_BRIGHTNESS)."""
+        # Enforce max brightness from base class to prevent overcurrent
+        self._brightness = max(0, min(self.MAX_BRIGHTNESS, brightness))
 
         if self._strip is not None:
             self._strip.setBrightness(self._brightness)
             self._strip.show()
-            self.logger.debug(f"Brightness set to {self._brightness}")
+            self.logger.debug(f"Brightness set to {self._brightness} (max={self.MAX_BRIGHTNESS})")
 
     def cleanup(self) -> None:
         """Turn off LEDs and release resources."""

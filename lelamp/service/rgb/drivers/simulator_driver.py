@@ -89,11 +89,12 @@ class SimulatorDriver(RGBDriver):
                 self.logger.error(f"Frame callback error: {e}")
 
     def set_brightness(self, brightness: int) -> None:
-        """Simulate setting brightness."""
-        self._brightness = max(0, min(255, brightness))
+        """Simulate setting brightness (capped at MAX_BRIGHTNESS)."""
+        # Enforce max brightness from base class to prevent overcurrent
+        self._brightness = max(0, min(self.MAX_BRIGHTNESS, brightness))
 
         if self.verbose:
-            self.logger.debug(f"Simulator brightness set to {self._brightness}")
+            self.logger.debug(f"Simulator brightness set to {self._brightness} (max={self.MAX_BRIGHTNESS})")
 
     def cleanup(self) -> None:
         """Clean up simulator."""

@@ -110,25 +110,39 @@ class ClerkAuth:
         self.secret_key = secret_key
         self.publishable_key = publishable_key
         self._jwks_client: Optional[PyJWKClient] = None
+        self._jwks_url: Optional[str] = None
 
-        # Extract Clerk frontend API from publishable key
-        # Format: pk_test_xxx or pk_live_xxx
+        # Extract Clerk frontend API domain from publishable key
+        # Format: pk_test_<base64_encoded_domain>$ or pk_live_<base64_encoded_domain>$
         if publishable_key:
-            # Clerk's JWKS URL format
-            self._jwks_url = "https://clerk.your-domain.com/.well-known/jwks.json"
-        else:
-            self._jwks_url = None
+            try:
+                import base64
+                # Remove pk_test_ or pk_live_ prefix
+                encoded = publishable_key.split('_', 2)[-1]
+                # Add padding if needed
+                padding = 4 - len(encoded) % 4
+                if padding != 4:
+                    encoded += '=' * padding
+                # Decode and strip any trailing $ or whitespace
+                domain = base64.b64decode(encoded).decode('utf-8').rstrip('$').strip()
+                self._jwks_url = f"https://{domain}/.well-known/jwks.json"
+                logger.info(f"Clerk JWKS URL: {self._jwks_url}")
+            except Exception as e:
+                logger.warning(f"Could not extract Clerk domain from publishable key: {e}")
 
     @property
     def jwks_client(self) -> Optional[PyJWKClient]:
         """Lazy-load JWKS client."""
         if self._jwks_client is None and self._jwks_url:
-            self._jwks_client = PyJWKClient(self._jwks_url)
+            try:
+                self._jwks_client = PyJWKClient(self._jwks_url)
+            except Exception as e:
+                logger.warning(f"Failed to create JWKS client: {e}")
         return self._jwks_client
 
     def validate_token(self, token: str) -> Optional[dict]:
         """
-        Validate a Clerk JWT token.
+        Validate a Clerk JWT token using JWKS (RS256).
 
         Args:
             token: JWT token string
@@ -136,17 +150,19 @@ class ClerkAuth:
         Returns:
             Decoded token payload if valid, None otherwise
         """
-        if not self.secret_key:
-            logger.warning("Clerk secret key not configured")
+        if not self.jwks_client:
+            logger.warning("Clerk JWKS client not configured")
             return None
 
         try:
-            # For Clerk, we can use the secret key directly for HS256
-            # or use JWKS for RS256 tokens
+            # Get the signing key from JWKS
+            signing_key = self.jwks_client.get_signing_key_from_jwt(token)
+
+            # Decode and verify the token with the public key
             payload = jwt.decode(
                 token,
-                self.secret_key,
-                algorithms=["HS256", "RS256"],
+                signing_key.key,
+                algorithms=["RS256"],
                 options={"verify_aud": False}  # Clerk doesn't always set audience
             )
             return payload
@@ -155,6 +171,9 @@ class ClerkAuth:
             return None
         except jwt.InvalidTokenError as e:
             logger.warning(f"Invalid Clerk token: {e}")
+            return None
+        except Exception as e:
+            logger.warning(f"Error validating Clerk token: {e}")
             return None
 
 
@@ -227,6 +246,7 @@ async def check_auth(
     """
     config = get_config()
     auth_config = config.get("auth", {})
+    setup_config = config.get("setup", {})
 
     # Check if auth is enabled
     if not auth_config.get("enabled", False):
@@ -235,11 +255,18 @@ async def check_auth(
             bypass_reason="auth_disabled"
         )
 
-    # Check for local network bypass
+    # Allow first boot access - if setup isn't complete, allow access to finish setup
+    # This prevents chicken-and-egg problem with configuring auth
+    if not setup_config.get("setup_complete", False):
+        return AuthResult(
+            authenticated=True,
+            bypass_reason="first_boot"
+        )
+
+    # Check for local network bypass (no logging - too noisy)
     if auth_config.get("local_bypass", True):
         client_ip = get_client_ip(request)
         if is_local_network(client_ip):
-            logger.debug(f"Local network bypass for {client_ip}")
             return AuthResult(
                 authenticated=True,
                 bypass_reason="local_network"

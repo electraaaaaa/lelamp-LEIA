@@ -9,7 +9,8 @@ from pydantic import BaseModel
 from typing import Dict, Any, Optional
 import logging
 
-from api.deps import get_animation_service, get_lelamp_agent
+from api.deps import get_animation_service, get_lelamp_agent, load_config
+from lelamp.service.motors.motors_service import fix_motor_voltage_limits
 
 router = APIRouter()
 
@@ -254,4 +255,56 @@ async def set_pushable_mode(request: PushableModeRequest):
                 return {"success": False, "error": "Failed to disable pushable mode"}
     except Exception as e:
         logging.error(f"Error setting pushable mode: {e}")
+        return {"success": False, "error": str(e)}
+
+
+class FixVoltageLimitsRequest(BaseModel):
+    voltage: str  # "7.4" or "12"
+
+
+@router.post("/fix-voltage-limits")
+async def fix_voltage_limits(request: FixVoltageLimitsRequest):
+    """
+    Fix motor voltage limits for all connected motors.
+
+    Args:
+        voltage: "7.4" for 7.4V servos or "12" for 12V servos
+
+    This will:
+    - Scan all motors (IDs 1-5)
+    - Set min voltage limit to 4.5V
+    - Set max voltage limit to 8.0V (7.4V) or 14.0V (12V)
+    - Write to motor EEPROM (persistent)
+    """
+    config = load_config()
+    port = config.get("motors", {}).get("port", "/dev/lelamp")
+
+    # Disconnect robot if connected to avoid conflicts
+    animation = get_animation_service()
+    robot_was_connected = False
+
+    if animation and animation.robot and animation.robot.is_connected:
+        robot_was_connected = True
+        logging.info("Temporarily disconnecting robot for voltage fix...")
+        try:
+            animation.robot.disconnect()
+        except Exception as e:
+            logging.warning(f"Error disconnecting robot: {e}")
+
+    try:
+        result = fix_motor_voltage_limits(port, request.voltage)
+
+        # Reconnect robot if it was connected
+        if robot_was_connected and animation and animation.robot:
+            logging.info("Reconnecting robot after voltage fix...")
+            try:
+                animation.robot.connect()
+            except Exception as e:
+                logging.warning(f"Error reconnecting robot: {e}")
+                result["reconnect_warning"] = f"Robot reconnect failed: {e}"
+
+        return result
+
+    except Exception as e:
+        logging.error(f"Error fixing voltage limits: {e}")
         return {"success": False, "error": str(e)}

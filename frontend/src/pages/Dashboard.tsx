@@ -30,6 +30,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { dashboardApi, agentApi, motorsApi, servicesApi, danceApi, musicModifierApi, systemApi, setupApi } from '@/lib/api'
 import { useTheme } from '@/lib/theme'
+import { AuthHeader } from '@/lib/auth'
 
 // Format token count for compact display (e.g., 1.2k, 45.3k, 1.2M)
 function formatTokenCount(count: number): string {
@@ -392,6 +393,8 @@ export function Dashboard() {
             >
               <Settings className="h-5 w-5" />
             </Button>
+            {/* Auth status / User button */}
+            <AuthHeader />
           </div>
         </div>
       </header>

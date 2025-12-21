@@ -404,6 +404,7 @@ def get_device_info() -> Dict[str, Any]:
         # Hardware identifiers (always from hardware)
         "serial": get_device_serial(),
         "serial_short": get_device_serial_short(),
+        "driver_board_sn": get_servo_driver_sn(),
         "model": get_device_model(),
 
         # Hardware specs

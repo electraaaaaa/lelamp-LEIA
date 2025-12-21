@@ -497,16 +497,9 @@ export function AIBackendSettings({ compact = false, onSaved }: AIBackendSetting
         {/* Cloud VAD Settings (only for LiveKit Realtime) */}
         {selectedBackend === 'livekit-realtime' && (
           <div className="space-y-3 pt-3 border-t">
-            <Label className="text-xs text-muted-foreground uppercase tracking-wide">
-              Cloud Turn Detection (Server VAD)
-            </Label>
-            <p className="text-xs text-muted-foreground">
-              These settings control OpenAI's server-side voice detection. Only used when VAD Mode is set to "Server" in Microphone settings.
-            </p>
-
             <div className="space-y-1">
               <div className="flex items-center justify-between">
-                <Label htmlFor="server-vad" className="text-sm">Server VAD Threshold</Label>
+                <Label htmlFor="server-vad" className="text-sm">Realtime Agent VAD Threshold (Cloud Turn Detection)</Label>
                 <span className="text-xs font-mono text-muted-foreground">{serverVadThreshold.toFixed(2)}</span>
               </div>
               <input

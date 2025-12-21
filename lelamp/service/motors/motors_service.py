@@ -1,11 +1,24 @@
 import os
 import csv
 import time
-from typing import Any, List
+import logging
+from typing import Any, List, Dict, Literal
 from ..base import ServiceBase
 from lelamp.follower import LeLampFollowerConfig, LeLampFollower
 
 LAMP_ID = "lelamp"
+logger = logging.getLogger(__name__)
+
+# Voltage limit presets
+VOLTAGE_PRESETS = {
+    "7.4": {"min": 45, "max": 80},   # 4.5V - 8.0V
+    "12": {"min": 45, "max": 140},   # 4.5V - 14.0V
+}
+
+# STS3215 EEPROM addresses
+ADDR_MIN_VOLTAGE = 10
+ADDR_MAX_VOLTAGE = 11
+ADDR_LOCK = 48
 
 
 class MotorsService(ServiceBase):
@@ -105,3 +118,111 @@ class MotorsService(ServiceBase):
                 recordings.append(recording_name)
 
         return sorted(recordings)
+
+
+def fix_motor_voltage_limits(port: str, voltage: Literal["7.4", "12"]) -> Dict[str, Any]:
+    """
+    Fix motor voltage limits for all connected motors.
+
+    Args:
+        port: Serial port (e.g., "/dev/lelamp")
+        voltage: Target voltage - "7.4" or "12"
+
+    Returns:
+        Dict with success status and per-motor results
+    """
+    import scservo_sdk as scs
+
+    if voltage not in VOLTAGE_PRESETS:
+        return {
+            "success": False,
+            "error": f"Invalid voltage: {voltage}. Must be '7.4' or '12'"
+        }
+
+    preset = VOLTAGE_PRESETS[voltage]
+    min_voltage = preset["min"]
+    max_voltage = preset["max"]
+
+    results = {
+        "success": True,
+        "voltage": voltage,
+        "min_limit": min_voltage,
+        "max_limit": max_voltage,
+        "motors": {}
+    }
+
+    try:
+        port_handler = scs.PortHandler(port)
+        packet = scs.PacketHandler(0)
+
+        if not port_handler.openPort():
+            return {"success": False, "error": f"Failed to open port {port}"}
+
+        port_handler.setBaudRate(1000000)
+
+        # Scan and fix motors 1-5
+        for motor_id in range(1, 6):
+            motor_result = {"id": motor_id, "found": False}
+
+            try:
+                port_handler.setPacketTimeoutMillis(100)
+                model, comm, error = packet.ping(port_handler, motor_id)
+
+                if comm != 0:
+                    motor_result["error"] = "Not responding"
+                    results["motors"][f"motor_{motor_id}"] = motor_result
+                    continue
+
+                motor_result["found"] = True
+                motor_result["model"] = model
+
+                # Read current values
+                old_min, _, _ = packet.read1ByteTxRx(port_handler, motor_id, ADDR_MIN_VOLTAGE)
+                old_max, _, _ = packet.read1ByteTxRx(port_handler, motor_id, ADDR_MAX_VOLTAGE)
+                curr_v, _, _ = packet.read1ByteTxRx(port_handler, motor_id, 62)
+
+                motor_result["old_min"] = old_min
+                motor_result["old_max"] = old_max
+                motor_result["present_voltage"] = curr_v / 10
+
+                # Unlock EEPROM
+                packet.write1ByteTxRx(port_handler, motor_id, ADDR_LOCK, 0)
+
+                # Write new voltage limits
+                packet.write1ByteTxRx(port_handler, motor_id, ADDR_MIN_VOLTAGE, min_voltage)
+                packet.write1ByteTxRx(port_handler, motor_id, ADDR_MAX_VOLTAGE, max_voltage)
+
+                # Lock EEPROM
+                packet.write1ByteTxRx(port_handler, motor_id, ADDR_LOCK, 1)
+
+                # Verify
+                new_min, _, _ = packet.read1ByteTxRx(port_handler, motor_id, ADDR_MIN_VOLTAGE)
+                new_max, _, _ = packet.read1ByteTxRx(port_handler, motor_id, ADDR_MAX_VOLTAGE)
+
+                motor_result["new_min"] = new_min
+                motor_result["new_max"] = new_max
+                motor_result["fixed"] = (new_min == min_voltage and new_max == max_voltage)
+
+                if not motor_result["fixed"]:
+                    results["success"] = False
+                    motor_result["error"] = "Failed to verify new values"
+
+            except Exception as e:
+                motor_result["error"] = str(e)
+                results["success"] = False
+
+            results["motors"][f"motor_{motor_id}"] = motor_result
+
+        port_handler.closePort()
+
+        # Count results
+        found = sum(1 for m in results["motors"].values() if m.get("found"))
+        fixed = sum(1 for m in results["motors"].values() if m.get("fixed"))
+        results["summary"] = f"Fixed {fixed}/{found} motors for {voltage}V operation"
+
+        logger.info(results["summary"])
+        return results
+
+    except Exception as e:
+        logger.error(f"Error fixing voltage limits: {e}")
+        return {"success": False, "error": str(e)}

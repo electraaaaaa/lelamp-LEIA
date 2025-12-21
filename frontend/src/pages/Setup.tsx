@@ -2169,7 +2169,8 @@ function MotorCalibrationStep({ onNext, onBack }: { onNext: () => void; onBack: 
         {calibrationPhase === 'connecting' && (
           <div className="text-center py-4">
             <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-2" />
-            <p className="text-sm text-muted-foreground">Connecting to motors...</p>
+            <p className="text-sm text-muted-foreground">Parking lamp safely...</p>
+            <p className="text-xs text-muted-foreground mt-1">Playing sleep animation</p>
           </div>
         )}
 

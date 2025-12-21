@@ -15,6 +15,7 @@ import {
   Search,
   Cloud,
   AlertTriangle,
+  Wrench,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -460,6 +461,20 @@ export function Settings() {
                 </select>
                 <p className="text-xs text-muted-foreground">
                   Gentle = slow, Normal = balanced, Sport = fast
+                </p>
+              </div>
+              <div className="pt-2 border-t">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => navigate('/setup?step=motor-calibration')}
+                >
+                  <Wrench className="h-4 w-4 mr-2" />
+                  Calibrate Motors
+                </Button>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Re-run motor calibration if positions seem off
                 </p>
               </div>
             </CardContent>

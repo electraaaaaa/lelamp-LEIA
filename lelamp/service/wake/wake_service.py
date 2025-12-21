@@ -46,9 +46,11 @@ class WakeService:
         self._audio_queue = queue.Queue(maxsize=50)  # Limit queue size to prevent buildup
 
         # Audio settings
-        self.sample_rate = 16000  # Whisper expects 16kHz
+        # Capture at 24kHz to match ALSA dsnoop config, resample to 16kHz for Whisper
+        self.capture_rate = 24000  # ALSA dsnoop is configured for 24kHz
+        self.whisper_rate = 16000  # Whisper expects 16kHz
         self.chunk_duration = 2  # Process 2-second chunks (faster processing)
-        self.chunk_samples = self.sample_rate * self.chunk_duration
+        self.chunk_samples = self.capture_rate * self.chunk_duration
         self.blocksize = 512  # Smaller blocks to reduce overflow
 
         # Overflow tracking
@@ -94,7 +96,7 @@ class WakeService:
                 self.logger.warning(f"Error finding device, using default: {e}")
 
             self._audio_stream = sd.InputStream(
-                samplerate=self.sample_rate,
+                samplerate=self.capture_rate,
                 channels=1,
                 dtype='float32',
                 blocksize=self.blocksize,
@@ -173,17 +175,26 @@ class WakeService:
                     # Concatenate and convert to format Whisper expects
                     # Flatten each chunk first to handle both 1D and 2D arrays
                     flattened_chunks = [c.flatten() for c in audio_buffer]
-                    audio = np.concatenate(flattened_chunks)
+                    audio_24k = np.concatenate(flattened_chunks)
 
                     # Check if audio has enough energy (skip if too quiet)
-                    audio_energy = np.sqrt(np.mean(audio**2))
+                    audio_energy = np.sqrt(np.mean(audio_24k**2))
                     if audio_energy < 0.01:  # Very quiet, likely silence
                         audio_buffer = []
                         continue
 
-                    # Transcribe with Whisper
+                    # Resample from 24kHz to 16kHz for Whisper
+                    if self.capture_rate != self.whisper_rate:
+                        # Simple linear interpolation resampling
+                        num_samples = int(len(audio_24k) * self.whisper_rate / self.capture_rate)
+                        indices = np.linspace(0, len(audio_24k) - 1, num_samples)
+                        audio_16k = np.interp(indices, np.arange(len(audio_24k)), audio_24k).astype(np.float32)
+                    else:
+                        audio_16k = audio_24k
+
+                    # Transcribe with Whisper (using 16kHz resampled audio)
                     result = self.model.transcribe(
-                        audio,
+                        audio_16k,
                         language="en",
                         fp16=False,  # RPi doesn't have FP16
                         task="transcribe"
@@ -208,12 +219,12 @@ class WakeService:
                             audio_buffer = []
                             break
 
-                    # Keep only last 1 second of audio (for overlap)
+                    # Keep only last 1 second of original 24kHz audio (for overlap)
                     # Store as 2D to match what audio callback provides
-                    overlap_samples = self.sample_rate * 1
-                    if len(audio) > overlap_samples:
+                    overlap_samples = self.capture_rate * 1
+                    if len(audio_24k) > overlap_samples:
                         # Reshape back to 2D (N, 1) to match audio callback format
-                        audio_buffer = [audio[-overlap_samples:].reshape(-1, 1)]
+                        audio_buffer = [audio_24k[-overlap_samples:].reshape(-1, 1)]
                     else:
                         audio_buffer = []
 

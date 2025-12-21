@@ -21,9 +21,17 @@ from api.v1.characters import router as characters_router
 from api.v1.spotify import router as spotify_router
 from api.v1.auth import router as auth_router
 
-# Public routes (no auth required)
-router.include_router(setup_router, prefix="/setup", tags=["setup"])
+# Auth routes are always public (needed to authenticate)
 router.include_router(auth_router, prefix="/auth", tags=["auth"])
+
+# Setup routes are protected (has camera access!)
+# Note: require_auth allows access if auth is not yet configured (first boot)
+router.include_router(
+    setup_router,
+    prefix="/setup",
+    tags=["setup"],
+    dependencies=[Depends(require_auth)]
+)
 
 # Protected routes (require authentication)
 # Note: require_auth handles local network bypass automatically

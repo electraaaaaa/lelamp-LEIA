@@ -16,9 +16,13 @@ class RGBService(ServiceBase):
         - Simulator mode for development
     """
 
+    # Hard maximum brightness to prevent overcurrent / power issues
+    # This cap is enforced regardless of config or API calls
+    MAX_BRIGHTNESS_PERCENT = 25
+
     def __init__(self,
                  led_count: int = 93,
-                 led_pin: int = 12,
+                 led_pin: int = 10,
                  led_freq_hz: int = 800000,
                  led_dma: int = 10,
                  led_brightness: int = 70,
@@ -31,6 +35,8 @@ class RGBService(ServiceBase):
         super().__init__("rgb")
 
         self.led_count = led_count
+        # Enforce maximum brightness cap to prevent overcurrent
+        led_brightness = min(led_brightness, self.MAX_BRIGHTNESS_PERCENT)
         # Convert brightness from 0-100 percentage to 0-255 for hardware
         self._brightness_percent = led_brightness
         brightness_255 = int((led_brightness / 100) * 255)
@@ -109,8 +115,9 @@ class RGBService(ServiceBase):
         print(f"🔒 RGB SERVICE: Sleep mode set to {enabled}")
 
     def set_brightness(self, brightness_percent: int):
-        """Set LED brightness (0-100 percent)"""
-        brightness_percent = max(0, min(100, brightness_percent))
+        """Set LED brightness (0-100 percent, capped at MAX_BRIGHTNESS_PERCENT)"""
+        # Enforce maximum brightness cap to prevent overcurrent
+        brightness_percent = max(0, min(self.MAX_BRIGHTNESS_PERCENT, brightness_percent))
         self._brightness_percent = brightness_percent
         brightness_255 = int((brightness_percent / 100) * 255)
 
