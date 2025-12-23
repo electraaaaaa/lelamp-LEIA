@@ -264,7 +264,8 @@ async def check_auth(
         )
 
     # Check for local network bypass (no logging - too noisy)
-    if auth_config.get("local_bypass", True):
+    # Default to False - require explicit opt-in for local bypass
+    if auth_config.get("local_bypass", False):
         client_ip = get_client_ip(request)
         if is_local_network(client_ip):
             return AuthResult(

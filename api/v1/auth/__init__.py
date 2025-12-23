@@ -24,7 +24,7 @@ async def get_auth_config():
     return {
         "success": True,
         "enabled": auth_config.get("enabled", False),
-        "localBypass": auth_config.get("local_bypass", True),
+        "localBypass": auth_config.get("local_bypass", False),  # Default to False - require explicit opt-in
         "clerkPublishableKey": auth_config.get("clerk_publishable_key"),
         # Never expose the secret key!
     }
@@ -43,5 +43,5 @@ async def get_auth_status():
     return {
         "success": True,
         "authRequired": auth_config.get("enabled", False),
-        "localBypassEnabled": auth_config.get("local_bypass", True),
+        "localBypassEnabled": auth_config.get("local_bypass", False),  # Default to False
     }

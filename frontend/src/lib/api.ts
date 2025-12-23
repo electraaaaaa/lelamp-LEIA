@@ -1043,22 +1043,34 @@ export const workflowsApi = {
     }>(`/workflows/${workflowId}`),
 }
 
-// Spotify API
-const SPOTIFY_API_BASE = '/api/v1/spotify'
-
+// Spotify API - uses the same auth token as other API calls
 async function fetchSpotifyApi<T>(
   endpoint: string,
   options?: RequestInit
 ): Promise<T> {
-  const response = await fetch(`${SPOTIFY_API_BASE}${endpoint}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
+  // Build headers with optional auth token (same as fetchApi)
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options?.headers as Record<string, string>),
+  }
+
+  // Add auth token if available
+  if (getAuthToken) {
+    const token = await getAuthToken()
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+    }
+  }
+
+  const response = await fetch(`${API_BASE}/spotify${endpoint}`, {
     ...options,
+    headers,
   })
 
   if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error('Authentication required')
+    }
     throw new Error(`Spotify API error: ${response.status}`)
   }
 
