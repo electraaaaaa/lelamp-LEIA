@@ -298,13 +298,14 @@ update_config() {
     print_info "Updating LeLamp config for local AI..."
 
     local config_file="$HOME/.lelamp/config.yaml"
+    local lelamp_dir="${LELAMP_DIR:-$HOME/lelampv2}"
+    local venv_python="$lelamp_dir/.venv/bin/python"
 
     if [ -f "$config_file" ]; then
-        # Check if python3 and pyyaml are available
-        if command -v python3 &> /dev/null; then
-            python3 << EOF
+        # Use venv Python which has PyYAML installed
+        if [ -x "$venv_python" ]; then
+            "$venv_python" << EOF
 import yaml
-import os
 
 config_path = "$config_file"
 model = "$model"
@@ -325,6 +326,8 @@ try:
 except Exception as e:
     print(f"Warning: Could not update config: {e}")
 EOF
+        else
+            print_warning "Venv Python not found - config not updated"
         fi
     fi
 }

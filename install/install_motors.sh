@@ -39,14 +39,28 @@ FORCE_ID=false
 CONFIRM_CENTER=false
 SKIP_MOTOR_SETUP=false
 
+# Get venv Python path (has PyYAML installed)
+get_venv_python() {
+    local lelamp_dir="${LELAMP_DIR:-$HOME/lelampv2}"
+    local venv_python="$lelamp_dir/.venv/bin/python"
+    if [ -x "$venv_python" ]; then
+        echo "$venv_python"
+    else
+        # Fallback to system python3 (may not have PyYAML)
+        echo "python3"
+    fi
+}
+
 # Read voltage from config.yaml
 get_config_voltage() {
     local config_file
     config_file=$(get_config_file) || return 1
+    local python_cmd
+    python_cmd=$(get_venv_python)
 
     if [ -f "$config_file" ]; then
         local voltage
-        voltage=$(python3 -c "
+        voltage=$("$python_cmd" -c "
 import yaml
 try:
     with open('$config_file', 'r') as f:
@@ -70,9 +84,11 @@ set_config_voltage() {
     local voltage="$1"
     local config_file
     config_file=$(get_config_file) || return 0
+    local python_cmd
+    python_cmd=$(get_venv_python)
 
     if [ -f "$config_file" ]; then
-        python3 -c "
+        "$python_cmd" -c "
 import yaml
 try:
     with open('$config_file', 'r') as f:

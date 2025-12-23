@@ -605,10 +605,13 @@ create_first_boot_marker() {
     # Mark setup as incomplete (will trigger setup wizard)
     local config_file="$HOME/.lelamp/config.yaml"
 
+    # Use venv Python which has PyYAML installed
+    local venv_python="$TARGET_DIR/.venv/bin/python"
+
     if [ -f "$config_file" ]; then
-        # Update existing config
-        if command -v python3 &> /dev/null; then
-            python3 << EOF
+        # Update existing config using venv Python (has PyYAML)
+        if [ -x "$venv_python" ]; then
+            "$venv_python" << EOF
 import yaml
 config_path = "$config_file"
 with open(config_path, 'r') as f:
@@ -625,6 +628,17 @@ with open(config_path, 'w') as f:
     yaml.safe_dump(config, f, default_flow_style=False)
 
 print("Config updated for first boot")
+EOF
+        else
+            print_warning "Venv Python not found, using fallback config creation"
+            # Fallback: create minimal config without PyYAML
+            cat > "$config_file" << EOF
+setup:
+  first_boot: true
+  setup_complete: false
+  current_step: welcome
+  oem_provisioned: true
+  oem_serial: "$DEVICE_SERIAL"
 EOF
         fi
     fi
@@ -711,6 +725,7 @@ print_summary_and_reboot() {
     echo "Device Information:"
     echo "  Serial:       $DEVICE_SERIAL"
     echo "  Hostname:     lelamp-${DEVICE_SERIAL_SHORT}"
+    echo "  Web UI:       http://lelamp-${DEVICE_SERIAL_SHORT}.local"
 
     # Only show AP info if AP was configured
     if [ "$SKIP_AP" != "true" ]; then
