@@ -45,6 +45,114 @@ def _load_motor_config():
             return yaml.safe_load(f)
     return {}
 
+
+def _check_and_fix_voltage_error(port: str, motor_id: int, target_voltage: str = "7.4", tty=None) -> bool:
+    """
+    Check if a motor has voltage limit issues and offer to fix them.
+
+    Returns True if motor is OK or was fixed, False if user declined fix.
+    """
+    import sys
+    try:
+        import scservo_sdk as scs
+    except ImportError:
+        return True  # Can't check, assume OK
+
+    if tty is None:
+        tty = sys.stdin
+
+    # Voltage configurations (values are in 0.1V units)
+    VOLTAGE_CONFIGS = {
+        "7.4": {"min": 45, "max": 80},   # 4.5V - 8.0V
+        "12": {"min": 95, "max": 135},   # 9.5V - 13.5V
+    }
+
+    ADDR_MAX_VOLTAGE_LIMIT = 14
+    ADDR_MIN_VOLTAGE_LIMIT = 15
+    ADDR_TORQUE_ENABLE = 40
+    ADDR_LOCK = 55
+
+    try:
+        port_handler = scs.PortHandler(port)
+        if not port_handler.openPort():
+            return True  # Can't open port, assume OK
+        if not port_handler.setBaudRate(1000000):
+            port_handler.closePort()
+            return True
+
+        packet_handler = scs.PacketHandler(0)
+
+        # Try to ping the motor and check for errors
+        model_number, comm_result, error = packet_handler.ping(port_handler, motor_id)
+
+        if comm_result != scs.COMM_SUCCESS:
+            port_handler.closePort()
+            return True  # Can't communicate, let normal error handling deal with it
+
+        # Check error status - error byte contains hardware error flags
+        if error != 0:
+            # Bit 0 = Input Voltage Error
+            if error & 0x01:
+                print(f"\n  ⚠ VOLTAGE ERROR DETECTED on motor ID {motor_id}")
+                print(f"  The motor's voltage limits don't match your power supply.")
+                print("")
+
+                # Read current voltage limits
+                min_val, _, _ = packet_handler.read1ByteTxRx(port_handler, motor_id, ADDR_MIN_VOLTAGE_LIMIT)
+                max_val, _, _ = packet_handler.read1ByteTxRx(port_handler, motor_id, ADDR_MAX_VOLTAGE_LIMIT)
+
+                target_config = VOLTAGE_CONFIGS.get(target_voltage, VOLTAGE_CONFIGS["7.4"])
+
+                print(f"  Current limits: {min_val/10:.1f}V - {max_val/10:.1f}V")
+                print(f"  Expected for {target_voltage}V: {target_config['min']/10:.1f}V - {target_config['max']/10:.1f}V")
+                print("")
+                print(f"  Fix voltage limits to {target_voltage}V config? [Y/n]: ", end='', flush=True)
+
+                response = tty.readline().strip().lower()
+                if response in ('', 'y', 'yes'):
+                    print(f"  Fixing voltage limits...", end=' ', flush=True)
+
+                    try:
+                        # Disable torque
+                        packet_handler.write1ByteTxRx(port_handler, motor_id, ADDR_TORQUE_ENABLE, 0)
+                        time.sleep(0.05)
+
+                        # Unlock EEPROM
+                        packet_handler.write1ByteTxRx(port_handler, motor_id, ADDR_LOCK, 0)
+                        time.sleep(0.05)
+
+                        # Write new voltage limits
+                        packet_handler.write1ByteTxRx(port_handler, motor_id, ADDR_MIN_VOLTAGE_LIMIT, target_config['min'])
+                        time.sleep(0.05)
+                        packet_handler.write1ByteTxRx(port_handler, motor_id, ADDR_MAX_VOLTAGE_LIMIT, target_config['max'])
+                        time.sleep(0.05)
+
+                        # Lock EEPROM
+                        packet_handler.write1ByteTxRx(port_handler, motor_id, ADDR_LOCK, 1)
+
+                        print("✓ Fixed!")
+                        print(f"  New limits: {target_config['min']/10:.1f}V - {target_config['max']/10:.1f}V")
+                        print("")
+
+                        port_handler.closePort()
+                        return True
+
+                    except Exception as e:
+                        print(f"✗ Failed: {e}")
+                        port_handler.closePort()
+                        return False
+                else:
+                    print("  → Skipped voltage fix")
+                    port_handler.closePort()
+                    return False
+
+        port_handler.closePort()
+        return True
+
+    except Exception as e:
+        # Any error, just return True and let normal flow handle it
+        return True
+
 logger = logging.getLogger(__name__)
 
 
@@ -442,12 +550,25 @@ class LeLampFollower(Robot):
         except OSError:
             tty = sys.stdin
 
+        # Determine target voltage from limits (for voltage fix prompt)
+        target_voltage = "7.4" if max_voltage_limit <= 80 else "12"
+
         for i, motor in enumerate(motors_by_id, 1):
             motor_id = self.bus.motors[motor].id
             print(f"\n[{i}/{total_motors}] Motor ID {motor_id}: {motor}")
             print("-" * 40)
             print(f"Connect ONLY the motor that will be ID {motor_id} ({motor}) and press Enter...", end='', flush=True)
             tty.readline()
+
+            # Check for voltage errors BEFORE setup_motor (which may fail with voltage errors)
+            # This gives the user a chance to fix voltage limits before the setup fails
+            _check_and_fix_voltage_error(
+                port=self.bus.port,
+                motor_id=motor_id,
+                target_voltage=target_voltage,
+                tty=tty
+            )
+
             self.bus.setup_motor(motor)
             # WARNING: Setting voltage limits can damage motors if values don't match your servo specs
             # Uncomment and verify voltage values match your servos before using:
