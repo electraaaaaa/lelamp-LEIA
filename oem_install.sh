@@ -8,7 +8,7 @@
 # Environment variables (passed via curl | bash):
 #   TAILSCALE_AUTH_KEY - Tailscale authentication key (optional)
 #   RPI_CONNECT_KEY    - Raspberry Pi Connect key (optional)
-#   HUB_URL            - LeLamp Hub server URL (default: http://192.168.10.10:8000)
+#   HUB_URL            - LeLamp Hub server URL (optional, for device registration)
 #   SKIP_REBOOT        - Set to "true" to skip final reboot
 #
 # Features:
@@ -23,10 +23,10 @@
 #
 # Usage:
 #   # Basic OEM install
-#   curl -sSL http://192.168.10.10:8083/lelamp/lelamp_v3_runtime/-/raw/main/oem_install.sh | bash
+#   curl -sSL https://raw.githubusercontent.com/humancomputerlab/lelampv2/main/oem_install.sh | bash
 #
 #   # With remote access keys
-#   TAILSCALE_AUTH_KEY=tskey-xxx RPI_CONNECT_KEY=xxx curl -sSL http://192.168.10.10:8083/lelamp/lelamp_v3_runtime/-/raw/main/oem_install.sh | bash
+#   TAILSCALE_AUTH_KEY=tskey-xxx RPI_CONNECT_KEY=xxx curl -sSL https://raw.githubusercontent.com/humancomputerlab/lelampv2/main/oem_install.sh | bash
 #
 
 set -e
@@ -35,11 +35,10 @@ set -e
 # Configuration
 # =============================================================================
 
-REPO_URL="${REPO_URL:-http://192.168.10.10:8083/lelamp/lelamp_v3_runtime.git}"
 REPO_URL="${REPO_URL:-https://github.com/humancomputerlab/lelampv2.git}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
 TARGET_DIR="${TARGET_DIR:-$HOME/lelampv2}"
-HUB_URL="${HUB_URL:-http://192.168.10.10:8000}"
+HUB_URL="${HUB_URL:-https://hub.lelamp.com}"
 LOG_FILE="/var/log/lelamp-oem-install.log"
 
 # =============================================================================
@@ -185,7 +184,7 @@ check_or_create_lelamp_user() {
         exec sudo -u lelamp bash -c "${env_exports}bash '$script_path'"
     else
         # Script was piped (curl | bash) - re-fetch it
-        exec sudo -u lelamp bash -c "${env_exports}bash <(curl -sSL http://192.168.10.10:8083/lelamp/lelamp_v3_runtime/-/raw/main/oem_install.sh)"
+        exec sudo -u lelamp bash -c "${env_exports}bash <(curl -sSL https://raw.githubusercontent.com/humancomputerlab/lelampv2/main/oem_install.sh)"
     fi
 }
 
@@ -317,14 +316,29 @@ clone_repository() {
     if [ -d "$TARGET_DIR" ]; then
         print_info "Updating existing repository..."
         cd "$TARGET_DIR"
-        git fetch origin
-        git checkout "$REPO_BRANCH" 2>/dev/null || git checkout -b "$REPO_BRANCH" "origin/$REPO_BRANCH"
-        git pull origin "$REPO_BRANCH"
-        print_success "Repository updated"
+        if git fetch origin 2>/dev/null; then
+            git checkout "$REPO_BRANCH" 2>/dev/null || git checkout -b "$REPO_BRANCH" "origin/$REPO_BRANCH" 2>/dev/null || true
+            git pull origin "$REPO_BRANCH" 2>/dev/null || true
+            print_success "Repository updated"
+        else
+            print_warning "Could not fetch updates (network unavailable?) - using existing files"
+        fi
     else
-        print_info "Cloning repository..."
-        git clone -b "$REPO_BRANCH" "$REPO_URL" "$TARGET_DIR"
-        print_success "Repository cloned to $TARGET_DIR"
+        print_info "Cloning repository from $REPO_URL..."
+        if git clone -b "$REPO_BRANCH" "$REPO_URL" "$TARGET_DIR" 2>/dev/null; then
+            print_success "Repository cloned to $TARGET_DIR"
+        else
+            print_warning "Could not clone repository (network unavailable or private repo?)"
+            # Check if there's an existing install we can use
+            if [ -d "$HOME/lelampv2" ]; then
+                TARGET_DIR="$HOME/lelampv2"
+                print_info "Using existing directory: $TARGET_DIR"
+            else
+                print_error "No repository available and cannot clone"
+                print_info "Please ensure network connectivity or copy lelampv2 manually"
+                return 1
+            fi
+        fi
     fi
 
     cd "$TARGET_DIR"
