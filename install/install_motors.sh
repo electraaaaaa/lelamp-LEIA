@@ -643,17 +643,14 @@ setup_motors() {
             set_config_voltage "$SERVO_VOLTAGE"
             print_success "Saved voltage ${SERVO_VOLTAGE}V to config.yaml"
         else
-            # Non-interactive mode - use config.yaml if available
+            # Non-interactive mode - use config.yaml if available, else default to 12V
             if [ -n "$config_voltage" ]; then
                 SERVO_VOLTAGE="$config_voltage"
                 print_info "Using voltage from config.yaml: ${SERVO_VOLTAGE}V"
             else
-                print_error "Servo voltage not specified and not in config.yaml!"
-                print_info "Either:"
-                print_info "  1. Set motors.voltage in config.yaml"
-                print_info "  2. Use --voltage flag: ./install_motors.sh --voltage 12 -y"
-                print_info "  3. Run interactively (without -y)"
-                return 1
+                SERVO_VOLTAGE="12"
+                print_info "Using default voltage: 12V"
+                set_config_voltage "$SERVO_VOLTAGE"
             fi
         fi
     else
@@ -827,13 +824,14 @@ run_full_motor_setup() {
             set_config_voltage "$SERVO_VOLTAGE"
             print_success "Saved voltage ${SERVO_VOLTAGE}V to config.yaml"
         else
-            # Non-interactive mode - use config.yaml if available
+            # Non-interactive mode - use config.yaml if available, else default to 12V
             if [ -n "$config_voltage" ]; then
                 SERVO_VOLTAGE="$config_voltage"
                 print_info "Using voltage from config.yaml: ${SERVO_VOLTAGE}V"
             else
-                print_error "Servo voltage not specified and not in config.yaml!"
-                return 1
+                SERVO_VOLTAGE="12"
+                print_info "Using default voltage: 12V"
+                set_config_voltage "$SERVO_VOLTAGE"
             fi
         fi
     fi

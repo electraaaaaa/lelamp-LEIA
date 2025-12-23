@@ -29,6 +29,8 @@ show_help() {
     echo "  - python3-dev        Python development headers"
     echo "  - jq                 JSON processing"
     echo "  - i2c-tools          I2C utilities (for ReSpeaker)"
+    echo "  - swig               SWIG interface generator (for lgpio)"
+    echo "  - liblgpio-dev       GPIO library for Raspberry Pi 5"
     show_help_footer
 }
 
@@ -83,6 +85,12 @@ install_dependencies() {
 
     print_info "Installing i2c-tools for hardware detection..."
     sudo apt-get install -y i2c-tools
+
+    print_info "Installing swig for lgpio Python bindings..."
+    sudo apt-get install -y swig
+
+    print_info "Installing lgpio library for GPIO access..."
+    sudo apt-get install -y liblgpio-dev
 
     print_info "Installing curl for downloads..."
     sudo apt-get install -y curl apt-transport-https
