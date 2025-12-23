@@ -89,6 +89,7 @@ show_help() {
     echo "  livekit        LiveKit CLI"
     echo "  raspotify      Spotify Connect"
     echo "  piper          Piper TTS (local text-to-speech)"
+    echo "  ollama         Ollama LLM (local language model)"
     echo "  python         Python dependencies"
     echo "  udev           Udev rules for USB devices"
     echo "  gpio           GPIO permissions"
@@ -324,7 +325,7 @@ print_final_instructions() {
     echo "  Or directly: ./install/install_<name>.sh"
     echo ""
     echo "  Available: audio, dependencies, uv, livekit, raspotify, piper,"
-    echo "             python, udev, gpio, env, motors, service"
+    echo "             ollama, python, udev, gpio, env, motors, service"
 
     echo -e "\n${BLUE}Audio Hardware Reconfiguration:${NC}"
     echo "  ./install/install_audio.sh --choice respeaker-v1"

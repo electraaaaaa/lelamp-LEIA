@@ -162,6 +162,44 @@ def is_ap_mode() -> bool:
 # API Endpoints
 # =============================================================================
 
+def check_and_fix_rfkill() -> tuple:
+    """Check if WiFi is blocked by rfkill and attempt to fix it."""
+    success, stdout, stderr = run_command(["rfkill", "list", "wifi"])
+
+    if not success:
+        return True, "Could not check rfkill status"
+
+    if "Soft blocked: yes" in stdout or "Hard blocked: yes" in stdout:
+        # WiFi is blocked - try to unblock and set country
+        run_command(["sudo", "raspi-config", "nonint", "do_wifi_country", "CA"])
+        run_command(["sudo", "rfkill", "unblock", "wifi"])
+
+        # Check again
+        success2, stdout2, _ = run_command(["rfkill", "list", "wifi"])
+        if "Soft blocked: yes" in stdout2:
+            return False, "WiFi is blocked by rfkill. Run: sudo rfkill unblock wifi"
+        if "Hard blocked: yes" in stdout2:
+            return False, "WiFi is hardware blocked. Check physical WiFi switch."
+
+    return True, None
+
+
+def check_wifi_interface() -> tuple:
+    """Check if WiFi interface exists and is available."""
+    success, stdout, stderr = run_command(["nmcli", "device", "status"])
+
+    if not success:
+        return False, "NetworkManager not responding"
+
+    if "wlan0" not in stdout and "wlan1" not in stdout:
+        return False, "No WiFi interface found"
+
+    if "unavailable" in stdout.lower() and "wifi" in stdout.lower():
+        return False, "WiFi interface unavailable - may need country code set"
+
+    return True, None
+
+
 @router.get("/scan")
 async def scan_wifi_networks():
     """
@@ -170,6 +208,28 @@ async def scan_wifi_networks():
     Returns list of networks sorted by signal strength.
     """
     try:
+        # Check if WiFi is blocked by rfkill
+        rfkill_ok, rfkill_error = check_and_fix_rfkill()
+        if not rfkill_ok:
+            return {
+                "success": False,
+                "error": rfkill_error,
+                "error_type": "rfkill_blocked",
+                "networks": [],
+                "fix_hint": "Run: sudo raspi-config nonint do_wifi_country CA && sudo rfkill unblock wifi"
+            }
+
+        # Check if WiFi interface exists
+        iface_ok, iface_error = check_wifi_interface()
+        if not iface_ok:
+            return {
+                "success": False,
+                "error": iface_error,
+                "error_type": "interface_unavailable",
+                "networks": [],
+                "fix_hint": "Check WiFi hardware or run: sudo systemctl restart NetworkManager"
+            }
+
         # Trigger a rescan first
         run_command(["sudo", "nmcli", "device", "wifi", "rescan"], timeout=10)
 
@@ -186,10 +246,20 @@ async def scan_wifi_networks():
             return {
                 "success": False,
                 "error": f"Failed to scan networks: {stderr}",
+                "error_type": "scan_failed",
                 "networks": []
             }
 
         networks = parse_nmcli_networks(stdout)
+
+        # If no networks found, might still be initializing
+        if not networks:
+            return {
+                "success": True,
+                "networks": [],
+                "count": 0,
+                "message": "No networks found. WiFi may still be initializing - try refreshing."
+            }
 
         return {
             "success": True,
@@ -201,6 +271,7 @@ async def scan_wifi_networks():
         return {
             "success": False,
             "error": str(e),
+            "error_type": "exception",
             "networks": []
         }
 
