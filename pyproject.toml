@@ -47,6 +47,7 @@ dependencies = [
     "lgpio>=0.2.2.0",
     "adafruit-circuitpython-neopixel>=6.3.18",
     "adafruit-blinka>=8.68.1",
+    "adafruit-blinka-raspberry-pi5-neopixel>=1.0.0rc2",  # Pi5 NeoPixel support
     "cryptography==44.0.0",
 ]
 

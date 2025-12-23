@@ -217,13 +217,15 @@ download_voice() {
 
     print_info "Downloading voice: $voice_name"
 
-    # Parse voice name (format: lang_REGION-name-quality)
+    # Parse voice name (format: lang_REGION-speaker-quality)
+    # Example: en_US-ryan-medium -> en/en_US/ryan/medium/en_US-ryan-medium.onnx
     local lang_region=$(echo "$voice_name" | cut -d'-' -f1)
     local lang=$(echo "$lang_region" | cut -d'_' -f1)
-    local speaker_quality=$(echo "$voice_name" | cut -d'-' -f2-)
+    local speaker=$(echo "$voice_name" | cut -d'-' -f2)
+    local quality=$(echo "$voice_name" | cut -d'-' -f3)
 
-    # Construct URLs
-    local base_path="${lang}/${lang_region}/${speaker_quality}"
+    # Construct URLs (path is: lang/lang_REGION/speaker/quality/filename)
+    local base_path="${lang}/${lang_region}/${speaker}/${quality}"
     local onnx_url="${PIPER_VOICES_URL}/${base_path}/${voice_name}.onnx"
     local json_url="${PIPER_VOICES_URL}/${base_path}/${voice_name}.onnx.json"
 
@@ -411,7 +413,7 @@ install_piper() {
         local installed=0
         local total=${#DEFAULT_VOICES[@]}
         for voice in "${DEFAULT_VOICES[@]}"; do
-            ((installed++))
+            installed=$((installed + 1))
             echo ""
             echo "[$installed/$total] $voice"
             if [ ! -f "$VOICES_DIR/${voice}.onnx" ]; then

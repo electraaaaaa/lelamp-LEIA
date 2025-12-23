@@ -49,8 +49,8 @@ pipeline:
     ollama_model: llama3.2:3b     # Or any Ollama model
     history_length: 10            # Chat history messages to keep
     # TTS - Piper
-    piper_path: ~/Faster-Local-Voice-AI-Whisper/piper/piper
-    voices_dir: ~/Faster-Local-Voice-AI-Whisper/voices
+    piper_path: piper/piper
+    voices_dir: piper/voices
     voice: ryan-medium.onnx       # Voice model file
     # Audio settings
     mute_mic_during_playback: true

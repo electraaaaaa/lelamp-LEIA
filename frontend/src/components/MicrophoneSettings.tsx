@@ -73,23 +73,20 @@ export function MicrophoneSettings() {
   // Only sync once on initial load to avoid fighting with user input
   const [initialized, setInitialized] = useState(false)
   useEffect(() => {
-    if (!initialized && micStatus?.available) {
-      // Prefer live service values, fall back to config
+    if (initialized) return
+
+    // Try to initialize from live service first (most accurate)
+    if (micStatus?.available && micStatus?.running) {
       if (micStatus.gate_release_time !== undefined) {
         setGateReleaseTime(micStatus.gate_release_time)
-      } else if (micConfig?.gate_release_time !== undefined) {
-        setGateReleaseTime(micConfig.gate_release_time)
       }
       if (micStatus.barge_in_threshold !== undefined) {
         setBargeInThreshold(micStatus.barge_in_threshold)
-      } else if (micConfig?.barge_in_threshold !== undefined) {
-        setBargeInThreshold(micConfig.barge_in_threshold)
       }
       if (micStatus.vad_threshold !== undefined) {
         setLocalVadThreshold(micStatus.vad_threshold)
-      } else if (micConfig?.local_vad_threshold !== undefined) {
-        setLocalVadThreshold(micConfig.local_vad_threshold)
       }
+      // These only come from config
       if (micConfig?.debug_logging !== undefined) {
         setDebugLogging(micConfig.debug_logging)
       }
@@ -97,8 +94,33 @@ export function MicrophoneSettings() {
         setVadMode(micConfig.vad_mode)
       }
       setInitialized(true)
+      return
     }
-  }, [micStatus, micConfig, initialized])
+
+    // Fall back to config if service not available but config is loaded
+    if (configData?.config?.microphone) {
+      const mc = configData.config.microphone
+      if (mc.gate_release_time !== undefined) {
+        setGateReleaseTime(mc.gate_release_time)
+      }
+      if (mc.barge_in_threshold !== undefined) {
+        setBargeInThreshold(mc.barge_in_threshold)
+      }
+      if (mc.local_vad_threshold !== undefined) {
+        setLocalVadThreshold(mc.local_vad_threshold)
+      }
+      if (mc.debug_logging !== undefined) {
+        setDebugLogging(mc.debug_logging)
+      }
+      if (mc.vad_mode !== undefined) {
+        setVadMode(mc.vad_mode)
+      }
+      // Only mark initialized from config if service explicitly unavailable
+      if (micStatus?.available === false) {
+        setInitialized(true)
+      }
+    }
+  }, [micStatus, micConfig, initialized, configData])
 
   // Debounced update function - updates both config and live service
   const debouncedUpdate = useCallback(

@@ -355,14 +355,23 @@ class LocalPipeline(PipelineBase):
 
         local_config = config.get("pipeline", {}).get("local", {})
 
-        # Expand paths
+        # Get LELAMP_DIR for resolving relative paths
+        lelamp_dir = Path(os.environ.get("LELAMP_DIR", Path.home() / "lelampv2"))
+
+        # Expand paths - resolve relative paths against LELAMP_DIR
         piper_path = local_config.get("piper_path")
         if piper_path:
-            piper_path = str(Path(piper_path).expanduser())
+            p = Path(piper_path).expanduser()
+            if not p.is_absolute():
+                p = lelamp_dir / p
+            piper_path = str(p)
 
         voices_dir = local_config.get("voices_dir")
         if voices_dir:
-            voices_dir = str(Path(voices_dir).expanduser())
+            p = Path(voices_dir).expanduser()
+            if not p.is_absolute():
+                p = lelamp_dir / p
+            voices_dir = str(p)
 
         # Initialize services
         self.audio_io = LocalAudioIO()

@@ -278,7 +278,7 @@ setup_lelamp_default() {
     echo ""
     print_info "Devices used:"
     echo "  lelamp_playback → dmix → hw:Device,0 @ 48kHz"
-    echo "  lelamp_capture  → dsnoop → hw:InnomakerU20CAM,0 @ 24kHz"
+    echo "  lelamp_capture  → dsnoop → hw:InnomakerU20CAM,0 @ 48kHz"
     echo ""
 
     # Test audio

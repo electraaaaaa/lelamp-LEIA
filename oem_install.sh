@@ -13,6 +13,7 @@
 #   SKIP_AP            - Set to "true" to skip WiFi AP setup
 #   SKIP_USER          - Set to "true" to skip lelamp user creation/password setup
 #   WIFI_COUNTRY       - WiFi regulatory country code (default: CA)
+#   LOCAL_AI           - Set to "false" to skip Piper/Ollama installation (default: true)
 #
 # Features:
 #   - Ensures script runs as 'lelamp' user (creates if needed)
@@ -22,6 +23,7 @@
 #   - Configures WiFi AP mode for first-time setup
 #   - Sets hostname to lelamp-SERIAL
 #   - Runs full component installation
+#   - Installs Piper TTS and Ollama for local AI (default, set LOCAL_AI=false to skip)
 #   - Registers device with Hub server
 #
 # Usage:
@@ -188,6 +190,7 @@ check_or_create_lelamp_user() {
     [ -n "$WIFI_COUNTRY" ] && env_exports="${env_exports}export WIFI_COUNTRY='$WIFI_COUNTRY'; "
     [ -n "$REPO_URL" ] && env_exports="${env_exports}export REPO_URL='$REPO_URL'; "
     [ -n "$REPO_BRANCH" ] && env_exports="${env_exports}export REPO_BRANCH='$REPO_BRANCH'; "
+    [ -n "$LOCAL_AI" ] && env_exports="${env_exports}export LOCAL_AI='$LOCAL_AI'; "
 
     # Check if script exists as a file (e.g., cloned repo) vs piped from curl
     local script_path="${BASH_SOURCE[0]}"
@@ -495,23 +498,19 @@ setup_tailscale() {
         return 0
     fi
 
-    # Validate auth key format
-    if [[ ! "$TAILSCALE_AUTH_KEY" =~ ^tskey- ]]; then
-        print_warning "Invalid Tailscale auth key format - skipping"
-        return 0
+    # Use the dedicated install script
+    if [ -f "$TARGET_DIR/install/install_tailscale.sh" ]; then
+        TAILSCALE_AUTH_KEY="$TAILSCALE_AUTH_KEY" bash "$TARGET_DIR/install/install_tailscale.sh" -y
+    else
+        # Fallback if script doesn't exist
+        if ! command -v tailscale &> /dev/null; then
+            print_info "Installing Tailscale..."
+            curl -fsSL https://tailscale.com/install.sh | sh
+        fi
+        print_info "Authenticating with Tailscale..."
+        sudo tailscale up --authkey="$TAILSCALE_AUTH_KEY" --accept-routes
+        print_success "Tailscale configured"
     fi
-
-    # Install Tailscale
-    if ! command -v tailscale &> /dev/null; then
-        print_info "Installing Tailscale..."
-        curl -fsSL https://tailscale.com/install.sh | sh
-    fi
-
-    # Authenticate
-    print_info "Authenticating with Tailscale..."
-    sudo tailscale up --authkey="$TAILSCALE_AUTH_KEY" --accept-routes
-
-    print_success "Tailscale configured"
 }
 
 # Step 9: Setup rpi-connect (optional)
@@ -523,21 +522,11 @@ setup_rpi_connect() {
         return 0
     fi
 
-    # Check if rpi-connect installer exists
+    # Use the dedicated install script
     if [ -f "$TARGET_DIR/install/install_rpi_connect.sh" ]; then
         RPI_CONNECT_KEY="$RPI_CONNECT_KEY" bash "$TARGET_DIR/install/install_rpi_connect.sh" -y
     else
-        # Install rpi-connect if not present
-        if ! command -v rpi-connect &> /dev/null; then
-            print_info "Installing rpi-connect..."
-            sudo apt-get update
-            sudo apt-get install -y rpi-connect || print_warning "rpi-connect not available in repos"
-        fi
-
-        if command -v rpi-connect &> /dev/null; then
-            print_info "Configuring rpi-connect..."
-            rpi-connect signin --device-key="$RPI_CONNECT_KEY" 2>/dev/null || print_warning "rpi-connect configuration failed"
-        fi
+        print_warning "install_rpi_connect.sh not found - skipping"
     fi
 }
 
@@ -598,7 +587,49 @@ run_main_installer() {
     print_success "LeLamp installation complete"
 }
 
-# Step 12: Create first-boot marker
+# Step 12: Install Piper TTS (for local AI)
+install_piper() {
+    print_header "Installing Piper TTS"
+
+    # Default to true if not set
+    LOCAL_AI="${LOCAL_AI:-true}"
+
+    if [ "$LOCAL_AI" = "false" ]; then
+        print_info "LOCAL_AI=false - skipping Piper installation"
+        return 0
+    fi
+
+    if [ -f "$TARGET_DIR/install/install_piper.sh" ]; then
+        print_info "Installing Piper TTS for local voice synthesis..."
+        bash "$TARGET_DIR/install/install_piper.sh" -y
+        print_success "Piper TTS installed"
+    else
+        print_warning "Piper installer not found - skipping"
+    fi
+}
+
+# Step 13: Install Ollama (for local AI)
+install_ollama() {
+    print_header "Installing Ollama"
+
+    # Default to true if not set
+    LOCAL_AI="${LOCAL_AI:-true}"
+
+    if [ "$LOCAL_AI" = "false" ]; then
+        print_info "LOCAL_AI=false - skipping Ollama installation"
+        return 0
+    fi
+
+    if [ -f "$TARGET_DIR/install/install_ollama.sh" ]; then
+        print_info "Installing Ollama for local LLM..."
+        bash "$TARGET_DIR/install/install_ollama.sh" -y
+        print_success "Ollama installed"
+    else
+        print_warning "Ollama installer not found - skipping"
+    fi
+}
+
+# Step 14: Create first-boot marker
 create_first_boot_marker() {
     print_header "Creating First Boot Configuration"
 
@@ -646,7 +677,7 @@ EOF
     print_success "First boot configuration created"
 }
 
-# Step 13: Register with Hub server
+# Step 15: Register with Hub server
 register_with_hub() {
     print_header "Registering with LeLamp Hub"
 
@@ -684,7 +715,7 @@ register_with_hub() {
     fi
 }
 
-# Step 14: Create lelamp-ap systemd service
+# Step 16: Create lelamp-ap systemd service
 create_ap_service() {
     print_header "Creating AP Auto-Start Service"
 
@@ -717,7 +748,7 @@ EOF
     print_success "AP service created and enabled"
 }
 
-# Step 15: Print summary and reboot
+# Step 17: Print summary and reboot
 print_summary_and_reboot() {
     print_header "OEM Installation Complete!"
 
@@ -802,7 +833,7 @@ main() {
     # This will create the user if needed and exit with instructions
     check_or_create_lelamp_user
 
-    local total_steps=16
+    local total_steps=18
 
     print_step 1 $total_steps "Initializing OEM installation"
     init_oem_install
@@ -840,16 +871,22 @@ main() {
     print_step 12 $total_steps "Running main installer"
     run_main_installer
 
-    print_step 13 $total_steps "Creating first boot config"
+    print_step 13 $total_steps "Installing Piper TTS"
+    install_piper
+
+    print_step 14 $total_steps "Installing Ollama"
+    install_ollama
+
+    print_step 15 $total_steps "Creating first boot config"
     create_first_boot_marker
 
-    print_step 14 $total_steps "Registering with Hub"
+    print_step 16 $total_steps "Registering with Hub"
     register_with_hub
 
-    print_step 15 $total_steps "Creating AP service"
+    print_step 17 $total_steps "Creating AP service"
     create_ap_service
 
-    print_step 16 $total_steps "Finalizing"
+    print_step 18 $total_steps "Finalizing"
     print_summary_and_reboot
 }
 

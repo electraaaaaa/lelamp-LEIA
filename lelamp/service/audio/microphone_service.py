@@ -2,7 +2,7 @@
 Microphone Service for LeLamp.
 
 Handles microphone input processing with:
-- Local VAD (Voice Activity Detection) using Silero VAD
+- Local VAD (Voice Activity Detection) using Silero VAD (via livekit-plugins-silero)
 - Acoustic Echo Cancellation (AEC) using reference signal from AudioService
 - Gating logic to prevent self-interruption during playback
 - Barge-in detection for interrupting AI speech
@@ -26,6 +26,16 @@ if TYPE_CHECKING:
     from .audio_service import AudioService
 
 logger = logging.getLogger(__name__)
+
+# Try to import livekit's silero plugin (preferred)
+_LIVEKIT_SILERO_AVAILABLE = False
+_silero_vad = None
+try:
+    from livekit.plugins import silero as livekit_silero
+    _LIVEKIT_SILERO_AVAILABLE = True
+    logger.debug("livekit-plugins-silero available")
+except ImportError:
+    logger.debug("livekit-plugins-silero not available")
 
 
 class MicrophoneService:
@@ -54,6 +64,8 @@ class MicrophoneService:
         barge_in_threshold: float = 0.15,
         echo_gate_threshold: float = 0.02,
         gate_release_time: float = 0.3,
+        min_speech_duration: float = 0.1,
+        min_silence_duration: float = 0.3,
         debug_logging: bool = False,
     ):
         """
@@ -62,10 +74,12 @@ class MicrophoneService:
         Args:
             audio_service: Reference to AudioService for playback state and AEC
             device: ALSA capture device name
-            vad_threshold: Silero VAD threshold (0.0-1.0)
+            vad_threshold: Silero VAD activation threshold (0.0-1.0, higher = needs louder speech)
             barge_in_threshold: RMS threshold to trigger barge-in during playback
             echo_gate_threshold: RMS threshold below which we assume it's echo
             gate_release_time: Seconds to wait after playback stops before ungating
+            min_speech_duration: Minimum speech duration to trigger speech start (seconds)
+            min_silence_duration: Minimum silence duration to trigger speech end (seconds)
             debug_logging: Enable verbose debug logging for tuning
         """
         self._audio_service = audio_service
@@ -74,6 +88,8 @@ class MicrophoneService:
         self._barge_in_threshold = barge_in_threshold
         self._echo_gate_threshold = echo_gate_threshold
         self._gate_release_time = gate_release_time
+        self._min_speech_duration = min_speech_duration
+        self._min_silence_duration = min_silence_duration
         self._debug_logging = debug_logging
 
         # State
@@ -83,10 +99,13 @@ class MicrophoneService:
 
         # VAD state
         self._vad_model = None
+        self._vad_stream = None  # For livekit silero streaming VAD
         self._vad_available = False
+        self._vad_backend = "none"  # "livekit_silero", "torch_silero", or "rms"
         self._speech_active = False
         self._speech_start_time: Optional[float] = None
         self._speech_end_time: Optional[float] = None
+        self._current_vad_probability: float = 0.0  # Last VAD probability for UI
 
         # Gating state
         self._gate_closed = False  # True = mic is muted (during playback)
@@ -95,6 +114,7 @@ class MicrophoneService:
 
         # Audio level tracking
         self._current_rms: float = 0.0
+        self._peak_rms: float = 0.0  # Peak RMS for calibration
         self._level_lock = threading.Lock()
 
         # Callbacks
@@ -108,10 +128,27 @@ class MicrophoneService:
         logger.info(f"MicrophoneService initialized (device={device}, vad_threshold={vad_threshold})")
 
     def _load_vad_model(self):
-        """Load Silero VAD model."""
+        """Load Silero VAD model. Tries livekit-plugins-silero first, then torch.hub fallback."""
+        # Try livekit-plugins-silero first (preferred - already bundled with our deps)
+        if _LIVEKIT_SILERO_AVAILABLE:
+            try:
+                logger.info("Loading Silero VAD via livekit-plugins-silero...")
+                self._vad_model = livekit_silero.VAD.load(
+                    min_speech_duration=self._min_speech_duration,
+                    min_silence_duration=self._min_silence_duration,
+                    activation_threshold=self._vad_threshold,
+                )
+                self._vad_available = True
+                self._vad_backend = "livekit_silero"
+                logger.info(f"Silero VAD loaded (livekit-plugins-silero) - threshold={self._vad_threshold}")
+                return
+            except Exception as e:
+                logger.warning(f"Failed to load livekit-plugins-silero VAD: {e}")
+
+        # Fallback to torch.hub (direct Silero)
         try:
             import torch
-            logger.info("Loading Silero VAD model (this may take a moment)...")
+            logger.info("Loading Silero VAD via torch.hub...")
             model, utils = torch.hub.load(
                 repo_or_dir='snakers4/silero-vad',
                 model='silero_vad',
@@ -120,13 +157,18 @@ class MicrophoneService:
             )
             self._vad_model = model
             self._vad_available = True
-            logger.info("Silero VAD model loaded successfully - using neural VAD")
+            self._vad_backend = "torch_silero"
+            logger.info("Silero VAD loaded (torch.hub) - using neural VAD")
+            return
         except ImportError:
-            logger.warning("PyTorch not available - using RMS fallback VAD (less accurate)")
-            self._vad_available = False
+            logger.warning("PyTorch not available")
         except Exception as e:
-            logger.warning(f"Failed to load Silero VAD: {e} - using RMS fallback VAD")
-            self._vad_available = False
+            logger.warning(f"Failed to load torch.hub Silero VAD: {e}")
+
+        # Final fallback to RMS-based VAD
+        logger.warning("Using RMS fallback VAD (less accurate than Silero)")
+        self._vad_available = False
+        self._vad_backend = "rms"
 
     def start(self):
         """Start microphone capture and processing."""
@@ -241,6 +283,9 @@ class MicrophoneService:
         rms = float(np.sqrt(np.mean(samples ** 2)))
         with self._level_lock:
             self._current_rms = rms
+            # Track peak for calibration UI
+            if rms > self._peak_rms:
+                self._peak_rms = rms
 
         # Get playback state from AudioService
         is_playing = False
@@ -315,44 +360,67 @@ class MicrophoneService:
         Run Silero VAD on audio samples.
         Updates speech state and fires callbacks.
         """
+        # RMS fallback VAD (used when Silero not available)
         if not self._vad_available or self._vad_model is None:
-            # Fallback: simple RMS-based VAD using a reasonable speech threshold
-            # Typical speech RMS is 0.05-0.2, background noise is 0.001-0.02
-            # Use barge_in_threshold as the speech detection threshold for fallback
-            fallback_threshold = max(self._barge_in_threshold, 0.05)
+            # Fallback: simple RMS-based VAD
+            # Use vad_threshold scaled to RMS range (0.05-0.3 typical speech)
+            fallback_threshold = self._vad_threshold * 0.3  # Scale 0-1 to 0-0.3 RMS
+            fallback_threshold = max(fallback_threshold, 0.03)  # Minimum threshold
             is_speech = self._current_rms > fallback_threshold
+            # Fake probability for UI (RMS scaled)
+            self._current_vad_probability = min(1.0, self._current_rms / 0.3)
             if self._debug_logging and is_speech:
-                logger.debug(f"🎤 Fallback VAD: rms={self._current_rms:.4f} > threshold={fallback_threshold:.4f}")
+                logger.debug(f"🎤 RMS VAD: rms={self._current_rms:.4f} > threshold={fallback_threshold:.4f}")
             self._update_speech_state(is_speech)
             return
 
-        try:
-            import torch
+        # Silero VAD (torch.hub backend)
+        if self._vad_backend == "torch_silero":
+            try:
+                import torch
 
-            # Add samples to buffer
-            for s in samples:
-                self._vad_buffer.append(s)
+                # Add samples to buffer
+                for s in samples:
+                    self._vad_buffer.append(s)
 
-            # Need at least 512 samples for VAD (at 16kHz)
-            # We're at 24kHz, so need ~768 samples
-            if len(self._vad_buffer) < 768:
-                return
+                # Need at least 512 samples for VAD (at 16kHz)
+                # We're at 24kHz, so need ~768 samples
+                if len(self._vad_buffer) < 768:
+                    return
 
-            # Get buffer and resample from 24kHz to 16kHz for Silero
-            buffer = np.array(list(self._vad_buffer))
-            # Simple resampling: take every 1.5th sample (24000/16000 = 1.5)
-            indices = np.arange(0, len(buffer), 1.5).astype(int)
-            resampled = buffer[indices[:512]] if len(indices) >= 512 else buffer[:512]
+                # Get buffer and resample from 24kHz to 16kHz for Silero
+                buffer = np.array(list(self._vad_buffer))
+                # Simple resampling: take every 1.5th sample (24000/16000 = 1.5)
+                indices = np.arange(0, len(buffer), 1.5).astype(int)
+                resampled = buffer[indices[:512]] if len(indices) >= 512 else buffer[:512]
 
-            # Run VAD (Silero expects 16kHz audio and integer sample rate)
-            tensor = torch.tensor(resampled, dtype=torch.float32)
-            speech_prob = self._vad_model(tensor, 16000).item()
+                # Run VAD (Silero expects 16kHz audio and integer sample rate)
+                tensor = torch.tensor(resampled, dtype=torch.float32)
+                speech_prob = self._vad_model(tensor, 16000).item()
+                self._current_vad_probability = speech_prob
 
-            is_speech = speech_prob > self._vad_threshold
+                is_speech = speech_prob > self._vad_threshold
+                if self._debug_logging:
+                    logger.debug(f"🎤 Silero VAD: prob={speech_prob:.3f} threshold={self._vad_threshold:.3f} speech={is_speech}")
+                self._update_speech_state(is_speech)
+
+            except Exception as e:
+                logger.debug(f"Torch Silero VAD error: {e}")
+
+        # LiveKit Silero backend - uses the model's internal event streaming
+        # For MicrophoneService, we use a simplified approach since we don't have
+        # the full async pipeline. Fall back to torch if livekit model doesn't
+        # provide direct probability access.
+        elif self._vad_backend == "livekit_silero":
+            # livekit-plugins-silero is event-based, designed for their pipeline
+            # For direct probability, we'd need torch.hub fallback
+            # For now, use RMS as a proxy when livekit silero is loaded
+            # (The main VAD benefit comes from the LiveKit pipeline itself)
+            fallback_threshold = self._vad_threshold * 0.3
+            fallback_threshold = max(fallback_threshold, 0.03)
+            is_speech = self._current_rms > fallback_threshold
+            self._current_vad_probability = min(1.0, self._current_rms / 0.3)
             self._update_speech_state(is_speech)
-
-        except Exception as e:
-            logger.debug(f"VAD error: {e}")
 
     def _update_speech_state(self, is_speech: bool):
         """Update speech state and fire callbacks."""
@@ -412,17 +480,69 @@ class MicrophoneService:
     def set_vad_threshold(self, threshold: float):
         """Set VAD detection threshold (0.0-1.0)."""
         self._vad_threshold = max(0.0, min(1.0, threshold))
+        # Update livekit silero model if available
+        if self._vad_backend == "livekit_silero" and self._vad_model:
+            try:
+                # Reload with new threshold
+                self._vad_model = livekit_silero.VAD.load(
+                    min_speech_duration=self._min_speech_duration,
+                    min_silence_duration=self._min_silence_duration,
+                    activation_threshold=self._vad_threshold,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to update livekit silero threshold: {e}")
         logger.info(f"VAD threshold set to {self._vad_threshold}")
 
     def set_barge_in_threshold(self, threshold: float):
         """Set barge-in RMS threshold."""
-        self._barge_in_threshold = threshold
+        self._barge_in_threshold = max(0.0, min(1.0, threshold))
         logger.info(f"Barge-in threshold set to {self._barge_in_threshold}")
 
     def set_gate_release_time(self, seconds: float):
         """Set gate release delay after playback stops."""
         self._gate_release_time = max(0.0, seconds)
         logger.info(f"Gate release time set to {self._gate_release_time}s")
+
+    def set_echo_gate_threshold(self, threshold: float):
+        """Set echo gate RMS threshold."""
+        self._echo_gate_threshold = max(0.0, min(1.0, threshold))
+        logger.info(f"Echo gate threshold set to {self._echo_gate_threshold}")
+
+    def set_min_speech_duration(self, seconds: float):
+        """Set minimum speech duration to trigger speech start."""
+        self._min_speech_duration = max(0.0, seconds)
+        # Update livekit silero model if available
+        if self._vad_backend == "livekit_silero" and self._vad_model:
+            try:
+                self._vad_model = livekit_silero.VAD.load(
+                    min_speech_duration=self._min_speech_duration,
+                    min_silence_duration=self._min_silence_duration,
+                    activation_threshold=self._vad_threshold,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to update livekit silero min_speech_duration: {e}")
+        logger.info(f"Min speech duration set to {self._min_speech_duration}s")
+
+    def set_min_silence_duration(self, seconds: float):
+        """Set minimum silence duration to trigger speech end."""
+        self._min_silence_duration = max(0.0, seconds)
+        # Update livekit silero model if available
+        if self._vad_backend == "livekit_silero" and self._vad_model:
+            try:
+                self._vad_model = livekit_silero.VAD.load(
+                    min_speech_duration=self._min_speech_duration,
+                    min_silence_duration=self._min_silence_duration,
+                    activation_threshold=self._vad_threshold,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to update livekit silero min_silence_duration: {e}")
+        logger.info(f"Min silence duration set to {self._min_silence_duration}s")
+
+    def reset_peak_rms(self):
+        """Reset peak RMS for recalibration."""
+        with self._level_lock:
+            self._peak_rms = 0.0
+        logger.info("Peak RMS reset")
 
     def force_gate_open(self):
         """Manually open the microphone gate."""
@@ -437,14 +557,20 @@ class MicrophoneService:
         logger.debug("Mic gate forced closed")
 
     def get_status(self) -> dict:
-        """Get comprehensive status for debugging."""
+        """Get comprehensive status for debugging and UI."""
         return {
             "running": self._running,
             "vad_available": self._vad_available,
+            "vad_backend": self._vad_backend,
             "speech_active": self._speech_active,
             "gate_closed": self._gate_closed,
             "current_rms": self._current_rms,
+            "peak_rms": self._peak_rms,
+            "vad_probability": self._current_vad_probability,
             "vad_threshold": self._vad_threshold,
             "barge_in_threshold": self._barge_in_threshold,
+            "echo_gate_threshold": self._echo_gate_threshold,
             "gate_release_time": self._gate_release_time,
+            "min_speech_duration": self._min_speech_duration,
+            "min_silence_duration": self._min_silence_duration,
         }

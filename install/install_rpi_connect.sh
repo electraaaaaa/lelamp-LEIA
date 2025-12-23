@@ -22,6 +22,11 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/common.sh" ]]; then
     source "$SCRIPT_DIR/common.sh"
+    # Alias log_* to print_* for compatibility
+    log_info() { print_info "$1"; }
+    log_success() { print_success "$1"; }
+    log_warning() { print_warning "$1"; }
+    log_error() { print_error "$1"; }
 else
     # Fallback definitions
     RED='\033[0;31m'
@@ -333,6 +338,11 @@ main() {
     local auth_key=""
     local lite_mode="false"
 
+    # Handle -y as shortcut for install (for consistency with other install scripts)
+    if [[ "$action" == "-y" || "$action" == "--yes" ]]; then
+        action="install"
+    fi
+
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --auth-key|--key)
@@ -341,6 +351,10 @@ main() {
                 ;;
             --lite)
                 lite_mode="true"
+                shift
+                ;;
+            -y|--yes)
+                # Already handled, just skip
                 shift
                 ;;
             -h|--help)
@@ -354,6 +368,11 @@ main() {
                 ;;
         esac
     done
+
+    # Use RPI_CONNECT_KEY env var if no auth key provided
+    if [[ -z "$auth_key" && -n "$RPI_CONNECT_KEY" ]]; then
+        auth_key="$RPI_CONNECT_KEY"
+    fi
 
     case "$action" in
         install)
@@ -382,9 +401,8 @@ main() {
             exit 0
             ;;
         "")
-            log_error "No action specified"
-            usage
-            exit 1
+            # Default to install if no action specified
+            install_rpi_connect "$auth_key" "$lite_mode"
             ;;
         *)
             log_error "Unknown action: $action"

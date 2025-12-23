@@ -5,10 +5,11 @@ After=network.target
 [Service]
 Type=simple
 User=lelamp
-WorkingDirectory=/home/lelamp/boxbots_lelampruntime
+WorkingDirectory=/home/lelamp/lelampv2
 ExecStart=/usr/local/bin/uv run main.py console
 Restart=always
 RestartSec=30
+Environment=HOME=/home/lelamp
 
 [Install]
 WantedBy=multi-user.target

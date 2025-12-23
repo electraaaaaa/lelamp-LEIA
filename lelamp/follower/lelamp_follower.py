@@ -179,6 +179,9 @@ class LeLampFollower(Robot):
         self._calibration_dir_override = USER_CALIBRATION_DIR
         self._calibration_dir_override.mkdir(parents=True, exist_ok=True)
 
+        # Track if motors are disabled due to missing calibration
+        self._motors_disabled = False
+
         super().__init__(config)
         self.config = config
         norm_mode_body = MotorNormMode.DEGREES if config.use_degrees else MotorNormMode.RANGE_M100_100
@@ -232,20 +235,71 @@ class LeLampFollower(Robot):
 
         return status
 
-    def connect(self, calibrate: bool = True) -> None:
+    def connect(self, calibrate: bool = True, max_retries: int = 3, retry_delay: float = 0.5) -> None:
         """
-        We assume that at connection time, arm is in a rest position,
-        and torque can be safely disabled to run calibration.
+        Connect to motors and apply calibration from file.
+
+        If calibration file exists, apply it. If not, disable motors.
+        No interactive prompts - use setup wizard for calibration.
+
+        Args:
+            calibrate: Whether to apply calibration after connecting
+            max_retries: Number of connection attempts (default 3)
+            retry_delay: Delay between retries in seconds (default 0.5)
         """
         if self.is_connected:
             raise DeviceAlreadyConnectedError(f"{self} already connected")
 
-        self.bus.connect()
-        if not self.is_calibrated and calibrate:
-            logger.info(
-                "Mismatch between calibration values in the motor and the calibration file or no calibration file found"
+        # Retry logic for transient motor communication issues
+        last_error = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                self.bus.connect()
+                if attempt > 1:
+                    logger.info(f"Motor bus connected on attempt {attempt}")
+                break
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries:
+                    logger.warning(f"Motor connection attempt {attempt}/{max_retries} failed: {e}")
+                    logger.info(f"Retrying in {retry_delay}s...")
+                    # Try to disconnect/reset the bus before retrying
+                    try:
+                        # Check if bus thinks it's connected before trying disconnect
+                        if self.bus.is_connected:
+                            self.bus.disconnect()
+                        elif hasattr(self.bus, 'port_handler') and self.bus.port_handler:
+                            # Port may be open even if handshake failed
+                            self.bus.port_handler.closePort()
+                    except Exception:
+                        pass
+                    time.sleep(retry_delay)
+                    # Increase delay for subsequent retries
+                    retry_delay *= 1.5
+                else:
+                    logger.error(f"Motor connection failed after {max_retries} attempts")
+                    raise last_error
+
+        # Check if calibration file exists and apply it
+        if self.calibration_fpath.exists() and self.calibration:
+            logger.info(f"Applying calibration from {self.calibration_fpath}")
+            try:
+                self.bus.write_calibration(self.calibration)
+                self._motors_disabled = False
+            except Exception as e:
+                logger.error(f"Failed to apply calibration: {e}")
+                logger.warning("Motors disabled. Run calibration via setup wizard at http://localhost/setup")
+                self.bus.disable_torque()
+                self._motors_disabled = True
+        else:
+            # No calibration file - disable motors
+            logger.warning(
+                "No calibration file found at %s. "
+                "Motors disabled. Please run calibration via the setup wizard at http://localhost/setup",
+                self.calibration_fpath
             )
-            self.calibrate()
+            self.bus.disable_torque()
+            self._motors_disabled = True
 
         for cam in self.cameras.values():
             cam.connect()
@@ -257,49 +311,29 @@ class LeLampFollower(Robot):
     def is_calibrated(self) -> bool:
         return self.bus.is_calibrated
 
+    @property
+    def motors_disabled(self) -> bool:
+        """True if motors are disabled due to missing/invalid calibration."""
+        return self._motors_disabled
+
     def calibrate(self) -> None:
-         
-        self.bus.disable_torque()
-        # Always prompt user for calibration choice
-        user_input = input(
-            f"Press ENTER for default calibration setup, or type 'c' and press ENTER to modify config: "
-        )
-        if user_input.strip().lower() == "c":
-            # User wants to choose a calibration file
-            if self.calibration:
-                logger.info(f"Using provided calibration file associated with the id {self.id}")
-                self.bus.write_calibration(self.calibration)
-                return
-            else:
-                logger.warning(f"No calibration file found for id {self.id}. Running default calibration instead.")
-        
-        # Default calibration setup
-        logger.info(f"\nRunning default calibration of {self}")
-        for motor in self.bus.motors:
-            self.bus.write("Operating_Mode", motor, OperatingMode.POSITION.value)
+        """
+        Apply calibration from file. Required by parent Robot class.
 
-        input(f"Move {self} to the middle of its range of motion and press ENTER....")
-        homing_offsets = self.bus.set_half_turn_homings()
-
-        print(
-            "Move all joints sequentially through their entire ranges "
-            "of motion.\nRecording positions. Press ENTER to stop..."
-        )
-        range_mins, range_maxes = self.bus.record_ranges_of_motion()
-
-        self.calibration = {}
-        for motor, m in self.bus.motors.items():
-            self.calibration[motor] = MotorCalibration(
-                id=m.id,
-                drive_mode=0,
-                homing_offset=homing_offsets[motor],
-                range_min=range_mins[motor],
-                range_max=range_maxes[motor],
+        For interactive calibration, use the setup wizard at http://localhost/setup
+        which uses the CalibrationService.
+        """
+        if self.calibration:
+            logger.info(f"Applying calibration from file for {self.id}")
+            self.bus.write_calibration(self.calibration)
+            self._motors_disabled = False
+        else:
+            logger.warning(
+                f"No calibration data available for {self.id}. "
+                "Please run calibration via the setup wizard."
             )
-
-        self.bus.write_calibration(self.calibration)
-        self._save_calibration()
-        print("Calibration saved to", self.calibration_fpath)
+            self.bus.disable_torque()
+            self._motors_disabled = True
 
     def configure(self) -> None:
         # Load motor presets from config.yaml

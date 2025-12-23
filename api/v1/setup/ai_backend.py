@@ -142,9 +142,16 @@ REALTIME_TO_TTS_VOICE = {
     "verse": "fable",   # verse is articulate male -> fable is expressive
 }
 
-# Piper voices directory
-PIPER_VOICES_DIR = Path.home() / "Faster-Local-Voice-AI-Whisper" / "voices"
-PIPER_PATH = Path.home() / "Faster-Local-Voice-AI-Whisper" / "piper" / "piper"
+# Piper voices directory (relative to LELAMP_DIR)
+def _get_lelamp_dir() -> Path:
+    """Get lelamp directory from environment or default."""
+    lelamp_dir = os.environ.get("LELAMP_DIR")
+    if lelamp_dir:
+        return Path(lelamp_dir)
+    return Path.home() / "lelampv2"
+
+PIPER_VOICES_DIR = _get_lelamp_dir() / "piper" / "voices"
+PIPER_PATH = _get_lelamp_dir() / "piper" / "piper"
 
 
 # =============================================================================
