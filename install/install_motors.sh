@@ -42,7 +42,7 @@ SKIP_MOTOR_SETUP=false
 # Read voltage from config.yaml
 get_config_voltage() {
     local config_file
-    config_file=$(get_config_file)
+    config_file=$(get_config_file) || return 1
 
     if [ -f "$config_file" ]; then
         local voltage
@@ -50,13 +50,13 @@ get_config_voltage() {
 import yaml
 try:
     with open('$config_file', 'r') as f:
-        config = yaml.safe_load(f)
+        config = yaml.safe_load(f) or {}
     v = config.get('motors', {}).get('voltage', '')
     if v:
         print(v)
 except:
     pass
-" 2>/dev/null)
+" 2>/dev/null) || true
         if [ -n "$voltage" ]; then
             echo "$voltage"
             return 0
@@ -69,19 +69,22 @@ except:
 set_config_voltage() {
     local voltage="$1"
     local config_file
-    config_file=$(get_config_file)
+    config_file=$(get_config_file) || return 0
 
     if [ -f "$config_file" ]; then
         python3 -c "
 import yaml
-with open('$config_file', 'r') as f:
-    config = yaml.safe_load(f)
-if 'motors' not in config:
-    config['motors'] = {}
-config['motors']['voltage'] = float('$voltage')
-with open('$config_file', 'w') as f:
-    yaml.dump(config, f, default_flow_style=False)
-" 2>/dev/null
+try:
+    with open('$config_file', 'r') as f:
+        config = yaml.safe_load(f) or {}
+    if 'motors' not in config:
+        config['motors'] = {}
+    config['motors']['voltage'] = float('$voltage')
+    with open('$config_file', 'w') as f:
+        yaml.dump(config, f, default_flow_style=False)
+except Exception as e:
+    pass  # Ignore errors, voltage setting is not critical
+" 2>/dev/null || true
     fi
 }
 
@@ -770,7 +773,14 @@ except:
                         print_info "Skipping motor ID setup"
                         ;;
                 esac
+            else
+                print_info "All motors present, skipping ID setup"
             fi
+
+            # Always apply Gentle preset for safe operation
+            print_info "Applying Gentle torque preset..."
+            uv run python -m lelamp.motor_utils --port "$MOTOR_PORT" apply-preset --preset Gentle 2>/dev/null || true
+            print_success "Motor setup complete"
         else
             print_info "Motor IDs need to be configured, running setup..."
             run_full_motor_setup

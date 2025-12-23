@@ -78,16 +78,18 @@ command_exists() {
 }
 
 # Get the LeLamp installation directory
-# Priority: 1) LELAMP_DIR env var, 2) Script location parent, 3) ~/lelamp
+# Priority: 1) LELAMP_DIR env var, 2) Script location parent, 3) ~/lelampv2, 4) ~/lelamp
 get_lelamp_dir() {
     if [ -n "$LELAMP_DIR" ]; then
         echo "$LELAMP_DIR"
     elif [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/../main.py" ]; then
         echo "$(cd "$SCRIPT_DIR/.." && pwd)"
+    elif [ -d "$HOME/lelampv2" ]; then
+        echo "$HOME/lelampv2"
     elif [ -d "$HOME/lelamp" ]; then
         echo "$HOME/lelamp"
     else
-        echo "$HOME/lelamp"
+        echo "$HOME/lelampv2"
     fi
 }
 
