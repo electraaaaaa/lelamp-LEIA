@@ -24,7 +24,7 @@ source "$SCRIPT_DIR/common.sh"
 
 # Script-specific variables
 ACTION="install"
-ENABLE_SERVICE=false
+ENABLE_SERVICE=true   # Default to enabling service on boot
 START_SERVICE=false
 
 show_help() {

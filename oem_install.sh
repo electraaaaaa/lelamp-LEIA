@@ -627,18 +627,57 @@ print_summary_and_reboot() {
     echo "Device Information:"
     echo "  Serial:       $DEVICE_SERIAL"
     echo "  Hostname:     lelamp-${DEVICE_SERIAL_SHORT}"
-    echo "  WiFi AP SSID: lelamp_${DEVICE_SERIAL_SHORT}"
-    echo "  WiFi AP Pass: lelamp123"
-    echo "  SSH User:     $(whoami)"
-    echo "  SSH Password: lelamp"
+
+    # Only show AP info if AP was configured
+    if [ "$SKIP_AP" != "true" ]; then
+        echo "  WiFi AP SSID: lelamp_${DEVICE_SERIAL_SHORT}"
+        echo "  WiFi AP Pass: lelamp123"
+    fi
+
+    # Only show user/password if user was configured
+    if [ "$SKIP_USER" != "true" ]; then
+        echo "  SSH User:     $(whoami)"
+        echo "  SSH Password: lelamp"
+    fi
+
     echo ""
     echo "Installation Directory: $TARGET_DIR"
     echo ""
+
+    # Check WiFi connectivity
+    local wifi_connected=false
+    local wifi_ssid=""
+    if command -v nmcli &> /dev/null; then
+        wifi_ssid=$(nmcli -t -f active,ssid dev wifi | grep '^yes' | cut -d: -f2 2>/dev/null || true)
+        if [ -n "$wifi_ssid" ]; then
+            wifi_connected=true
+        fi
+    fi
+
     echo "Next Steps:"
-    echo "  1. Device will reboot into AP mode"
-    echo "  2. Connect to WiFi: lelamp_${DEVICE_SERIAL_SHORT}"
-    echo "  3. Open http://192.168.4.1 in browser"
-    echo "  4. Complete setup wizard"
+
+    if [ "$SKIP_AP" = "true" ]; then
+        # No AP mode - check if WiFi is connected
+        if [ "$wifi_connected" = "true" ]; then
+            echo "  1. Device will reboot"
+            echo "  2. Access via: http://lelamp-${DEVICE_SERIAL_SHORT}.local"
+            echo "  3. Or SSH: ssh $(whoami)@lelamp-${DEVICE_SERIAL_SHORT}.local"
+        else
+            echo ""
+            echo -e "  ${YELLOW}⚠ WARNING: No WiFi network connected!${NC}"
+            echo ""
+            echo "  Before rebooting, configure WiFi:"
+            echo -e "  ${CYAN}sudo nmtui${NC}"
+            echo ""
+            echo "  Or connect via Ethernet after reboot."
+        fi
+    else
+        # AP mode configured
+        echo "  1. Device will reboot into AP mode"
+        echo "  2. Connect to WiFi: lelamp_${DEVICE_SERIAL_SHORT}"
+        echo "  3. Open http://192.168.4.1 in browser"
+        echo "  4. Complete setup wizard"
+    fi
     echo ""
 
     log "=== OEM Installation Complete ==="
