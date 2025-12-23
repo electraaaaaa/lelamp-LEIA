@@ -36,6 +36,51 @@ from lelamp.service.datacollection import DataCollectionService
 # Import pipelines
 from lelamp.pipelines import run_local_pipeline
 
+
+def check_audio_hardware() -> tuple[bool, bool, str]:
+    """
+    Check if audio hardware (microphone/speaker) is available.
+
+    Returns:
+        (has_microphone, has_speaker, error_message)
+    """
+    import subprocess
+
+    has_mic = False
+    has_speaker = False
+    error_msg = ""
+
+    try:
+        # Check for capture devices (microphones)
+        result = subprocess.run(
+            ["arecord", "-l"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if "card" in result.stdout.lower():
+            has_mic = True
+    except Exception as e:
+        error_msg = f"Could not check microphone: {e}"
+
+    try:
+        # Check for playback devices (speakers)
+        result = subprocess.run(
+            ["aplay", "-l"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if "card" in result.stdout.lower():
+            has_speaker = True
+    except Exception as e:
+        if error_msg:
+            error_msg += f"; Could not check speaker: {e}"
+        else:
+            error_msg = f"Could not check speaker: {e}"
+
+    return has_mic, has_speaker, error_msg
+
 # Import WebUI server (this initializes all hardware services)
 from lelamp.service.webui import start_webui_server
 
@@ -166,6 +211,36 @@ if __name__ == "__main__":
 
     elif pipeline_type == "local":
         logging.info("Using local pipeline (Faster Whisper + Ollama + Piper)")
+
+    # Check for audio hardware (required for voice agent)
+    if agent_enabled:
+        has_mic, has_speaker, audio_error = check_audio_hardware()
+
+        if not has_mic:
+            logging.warning("No microphone detected - disabling voice agent")
+            agent_enabled = False
+
+            print("\n" + "="*60)
+            print("NO MICROPHONE DETECTED")
+            print("="*60)
+            print("The voice agent requires a microphone to function.")
+            print("")
+            print("Please connect USB audio hardware and restart the service.")
+            print("")
+            print("To check available devices:")
+            print("  arecord -l   # List capture devices")
+            print("  aplay -l     # List playback devices")
+            print("")
+            print("WebUI is still available for configuration.")
+            print("="*60 + "\n")
+
+        elif not has_speaker:
+            logging.warning("No speaker detected - audio output may not work")
+            print("\n" + "="*60)
+            print("WARNING: No speaker detected")
+            print("="*60)
+            print("Audio output may not work. Connect USB audio hardware.")
+            print("="*60 + "\n")
 
     if not agent_enabled:
         # Only show "disabled" message if agent was explicitly disabled in config
