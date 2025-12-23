@@ -6,6 +6,7 @@ import { Workflows } from '@/pages/Workflows'
 import { Spotify } from '@/pages/Spotify'
 import { Settings } from '@/pages/Settings'
 import { Animations } from '@/pages/Animations'
+import { RgbAnimations } from '@/pages/RgbAnimations'
 import { ProtectedRoute } from '@/lib/auth'
 import { ThemeProvider } from '@/lib/theme'
 
@@ -51,6 +52,11 @@ function App() {
             <Route path="/animations" element={
               <ProtectedRoute>
                 <Animations />
+              </ProtectedRoute>
+            } />
+            <Route path="/rgb-animations" element={
+              <ProtectedRoute>
+                <RgbAnimations />
               </ProtectedRoute>
             } />
 

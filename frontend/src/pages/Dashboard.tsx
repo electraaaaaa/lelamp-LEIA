@@ -16,6 +16,7 @@ import {
   Workflow,
   Music2,
   Film,
+  Lightbulb,
   Server,
   Thermometer,
   HardDrive,
@@ -364,6 +365,14 @@ export function Dashboard() {
               title="Animations"
             >
               <Film className="h-5 w-5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => navigate('/rgb-animations')}
+              title="RGB Animations"
+            >
+              <Lightbulb className="h-5 w-5" />
             </Button>
             <Button
               variant="ghost"

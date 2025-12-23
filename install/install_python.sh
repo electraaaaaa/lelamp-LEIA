@@ -209,6 +209,7 @@ install_python() {
         else
             # Default to hardware mode if skipping confirmation
             INSTALL_MODE="hardware"
+            print_info "Using default mode: hardware"
         fi
     fi
 

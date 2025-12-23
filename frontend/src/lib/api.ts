@@ -1252,6 +1252,30 @@ export const authApi = {
     }>('/auth/status'),
 }
 
+// RGB Animations API
+export const rgbAnimationsApi = {
+  list: () =>
+    fetchApi<{
+      success: boolean
+      animations: Record<string, string>  // {name: description}
+    }>('/setup/rgb/animations'),
+
+  play: (name: string, duration: number = 10.0) =>
+    fetchApi<{
+      success: boolean
+      animation?: string
+      duration?: number
+      error?: string
+    }>(`/setup/rgb/animation/${name}?duration=${duration}`, {
+      method: 'POST',
+    }),
+
+  stop: () =>
+    fetchApi<{ success: boolean; message?: string }>('/setup/rgb/off', {
+      method: 'POST',
+    }),
+}
+
 // Characters/Personality API
 export const charactersApi = {
   list: () =>
