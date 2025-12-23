@@ -10,6 +10,8 @@
 #   RPI_CONNECT_KEY    - Raspberry Pi Connect key (optional)
 #   HUB_URL            - LeLamp Hub server URL (optional, for device registration)
 #   SKIP_REBOOT        - Set to "true" to skip final reboot
+#   SKIP_AP            - Set to "true" to skip WiFi AP setup
+#   SKIP_USER          - Set to "true" to skip lelamp user creation/password setup
 #
 # Features:
 #   - Ensures script runs as 'lelamp' user (creates if needed)
@@ -133,6 +135,12 @@ check_or_create_lelamp_user() {
         return 0
     fi
 
+    # If SKIP_USER is set, continue as current user
+    if [ "$SKIP_USER" = "true" ]; then
+        echo -e "${YELLOW}[WARN] SKIP_USER=true - continuing as '$current_user' instead of 'lelamp'${NC}"
+        return 0
+    fi
+
     echo -e "\n${BLUE}============================================${NC}"
     echo -e "${BLUE}LeLamp User Check${NC}"
     echo -e "${BLUE}============================================${NC}\n"
@@ -174,6 +182,8 @@ check_or_create_lelamp_user() {
     [ -n "$RPI_CONNECT_KEY" ] && env_exports="${env_exports}export RPI_CONNECT_KEY='$RPI_CONNECT_KEY'; "
     [ -n "$HUB_URL" ] && env_exports="${env_exports}export HUB_URL='$HUB_URL'; "
     [ -n "$SKIP_REBOOT" ] && env_exports="${env_exports}export SKIP_REBOOT='$SKIP_REBOOT'; "
+    [ -n "$SKIP_AP" ] && env_exports="${env_exports}export SKIP_AP='$SKIP_AP'; "
+    [ -n "$SKIP_USER" ] && env_exports="${env_exports}export SKIP_USER='$SKIP_USER'; "
     [ -n "$REPO_URL" ] && env_exports="${env_exports}export REPO_URL='$REPO_URL'; "
     [ -n "$REPO_BRANCH" ] && env_exports="${env_exports}export REPO_BRANCH='$REPO_BRANCH'; "
 
@@ -251,6 +261,11 @@ store_device_serial() {
 # Step 3: Set default credentials
 set_default_credentials() {
     print_header "Setting Default Credentials"
+
+    if [ "$SKIP_USER" = "true" ]; then
+        print_info "SKIP_USER=true - skipping password setup"
+        return 0
+    fi
 
     local current_user=$(whoami)
 
@@ -347,6 +362,11 @@ clone_repository() {
 # Step 7: Run WiFi AP setup
 setup_wifi_ap() {
     print_header "Configuring WiFi AP Mode"
+
+    if [ "$SKIP_AP" = "true" ]; then
+        print_info "SKIP_AP=true - skipping WiFi AP setup"
+        return 0
+    fi
 
     local ap_ssid="lelamp_${DEVICE_SERIAL_SHORT}"
     local ap_password="lelamp123"
@@ -569,6 +589,11 @@ register_with_hub() {
 # Step 14: Create lelamp-ap systemd service
 create_ap_service() {
     print_header "Creating AP Auto-Start Service"
+
+    if [ "$SKIP_AP" = "true" ]; then
+        print_info "SKIP_AP=true - skipping AP service creation"
+        return 0
+    fi
 
     # Create systemd service that starts AP on first boot
     sudo tee /etc/systemd/system/lelamp-ap.service > /dev/null << EOF
