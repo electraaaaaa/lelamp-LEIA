@@ -46,17 +46,20 @@ def _load_motor_config():
     return {}
 
 
-def _check_and_fix_voltage_error(port: str, motor_id: int, target_voltage: str = "7.4", tty=None) -> bool:
+def _scan_motors_and_check_errors(port: str, target_voltage: str = "7.4", tty=None) -> tuple:
     """
-    Check if a motor has voltage limit issues and offer to fix them.
+    Scan bus for motors, check for multiple motors and voltage errors.
 
-    Returns True if motor is OK or was fixed, False if user declined fix.
+    Returns:
+        tuple: (motors_found: list, should_retry: bool)
+        - motors_found: list of motor IDs found on bus
+        - should_retry: True if user wants to retry after fixing an issue
     """
     import sys
     try:
         import scservo_sdk as scs
     except ImportError:
-        return True  # Can't check, assume OK
+        return ([], False)  # Can't check, assume OK
 
     if tty is None:
         tty = sys.stdin
@@ -75,43 +78,59 @@ def _check_and_fix_voltage_error(port: str, motor_id: int, target_voltage: str =
     try:
         port_handler = scs.PortHandler(port)
         if not port_handler.openPort():
-            return True  # Can't open port, assume OK
+            return ([], False)  # Can't open port
         if not port_handler.setBaudRate(1000000):
             port_handler.closePort()
-            return True
+            return ([], False)
 
         packet_handler = scs.PacketHandler(0)
 
-        # Try to ping the motor and check for errors
-        model_number, comm_result, error = packet_handler.ping(port_handler, motor_id)
+        # Scan for all motors on the bus
+        motors_found = []
+        motors_with_errors = []
 
-        if comm_result != scs.COMM_SUCCESS:
+        for motor_id in range(1, 254):  # Scan all possible IDs
+            model_number, comm_result, error = packet_handler.ping(port_handler, motor_id)
+            if comm_result == scs.COMM_SUCCESS:
+                motors_found.append(motor_id)
+                if error & 0x01:  # Bit 0 = Input Voltage Error
+                    motors_with_errors.append(motor_id)
+
+        # Check for multiple motors connected
+        if len(motors_found) > 1:
+            print(f"\n  ⚠ MULTIPLE MOTORS DETECTED: {motors_found}")
+            print("  Please connect ONLY ONE motor at a time for ID assignment.")
+            print("  Disconnect the extra motor(s) and press Enter to retry...", end='', flush=True)
+            tty.readline()
             port_handler.closePort()
-            return True  # Can't communicate, let normal error handling deal with it
+            return (motors_found, True)  # Ask to retry
 
-        # Check error status - error byte contains hardware error flags
-        if error != 0:
-            # Bit 0 = Input Voltage Error
-            if error & 0x01:
-                print(f"\n  ⚠ VOLTAGE ERROR DETECTED on motor ID {motor_id}")
-                print(f"  The motor's voltage limits don't match your power supply.")
-                print("")
+        # Check for no motors
+        if len(motors_found) == 0:
+            port_handler.closePort()
+            return ([], False)  # No motors, let normal error handling deal with it
 
-                # Read current voltage limits
+        # Check for voltage errors
+        if motors_with_errors:
+            print(f"\n  ⚠ VOLTAGE ERROR DETECTED on motor ID(s): {motors_with_errors}")
+            print(f"  The motor's voltage limits don't match your power supply.")
+            print("")
+
+            target_config = VOLTAGE_CONFIGS.get(target_voltage, VOLTAGE_CONFIGS["7.4"])
+
+            # Show details for each motor
+            for motor_id in motors_with_errors:
                 min_val, _, _ = packet_handler.read1ByteTxRx(port_handler, motor_id, ADDR_MIN_VOLTAGE_LIMIT)
                 max_val, _, _ = packet_handler.read1ByteTxRx(port_handler, motor_id, ADDR_MAX_VOLTAGE_LIMIT)
+                print(f"  Motor {motor_id}: {min_val/10:.1f}V - {max_val/10:.1f}V (expected: {target_config['min']/10:.1f}V - {target_config['max']/10:.1f}V)")
 
-                target_config = VOLTAGE_CONFIGS.get(target_voltage, VOLTAGE_CONFIGS["7.4"])
+            print("")
+            print(f"  Fix voltage limits to {target_voltage}V config? [Y/n]: ", end='', flush=True)
 
-                print(f"  Current limits: {min_val/10:.1f}V - {max_val/10:.1f}V")
-                print(f"  Expected for {target_voltage}V: {target_config['min']/10:.1f}V - {target_config['max']/10:.1f}V")
-                print("")
-                print(f"  Fix voltage limits to {target_voltage}V config? [Y/n]: ", end='', flush=True)
-
-                response = tty.readline().strip().lower()
-                if response in ('', 'y', 'yes'):
-                    print(f"  Fixing voltage limits...", end=' ', flush=True)
-
+            response = tty.readline().strip().lower()
+            if response in ('', 'y', 'yes'):
+                for motor_id in motors_with_errors:
+                    print(f"  Fixing motor {motor_id}...", end=' ', flush=True)
                     try:
                         # Disable torque
                         packet_handler.write1ByteTxRx(port_handler, motor_id, ADDR_TORQUE_ENABLE, 0)
@@ -129,29 +148,19 @@ def _check_and_fix_voltage_error(port: str, motor_id: int, target_voltage: str =
 
                         # Lock EEPROM
                         packet_handler.write1ByteTxRx(port_handler, motor_id, ADDR_LOCK, 1)
-
-                        print("✓ Fixed!")
-                        print(f"  New limits: {target_config['min']/10:.1f}V - {target_config['max']/10:.1f}V")
-                        print("")
-
-                        port_handler.closePort()
-                        return True
-
+                        print("✓")
                     except Exception as e:
-                        print(f"✗ Failed: {e}")
-                        port_handler.closePort()
-                        return False
-                else:
-                    print("  → Skipped voltage fix")
-                    port_handler.closePort()
-                    return False
+                        print(f"✗ {e}")
+
+                print(f"  Voltage limits fixed to {target_config['min']/10:.1f}V - {target_config['max']/10:.1f}V")
+                print("")
 
         port_handler.closePort()
-        return True
+        return (motors_found, False)
 
     except Exception as e:
-        # Any error, just return True and let normal flow handle it
-        return True
+        # Any error, just return empty and let normal flow handle it
+        return ([], False)
 
 logger = logging.getLogger(__name__)
 
@@ -555,21 +564,63 @@ class LeLampFollower(Robot):
 
         for i, motor in enumerate(motors_by_id, 1):
             motor_id = self.bus.motors[motor].id
-            print(f"\n[{i}/{total_motors}] Motor ID {motor_id}: {motor}")
-            print("-" * 40)
-            print(f"Connect ONLY the motor that will be ID {motor_id} ({motor}) and press Enter...", end='', flush=True)
-            tty.readline()
+            motor_setup_success = False
 
-            # Check for voltage errors BEFORE setup_motor (which may fail with voltage errors)
-            # This gives the user a chance to fix voltage limits before the setup fails
-            _check_and_fix_voltage_error(
-                port=self.bus.port,
-                motor_id=motor_id,
-                target_voltage=target_voltage,
-                tty=tty
-            )
+            # Retry loop for each motor
+            while True:
+                print(f"\n[{i}/{total_motors}] Motor ID {motor_id}: {motor}")
+                print("-" * 40)
+                print(f"Connect ONLY the motor that will be ID {motor_id} ({motor}) and press Enter...", end='', flush=True)
+                tty.readline()
 
-            self.bus.setup_motor(motor)
+                # Check how many motors are connected and for voltage errors
+                motors_found, should_retry = _scan_motors_and_check_errors(
+                    port=self.bus.port,
+                    target_voltage=target_voltage,
+                    tty=tty
+                )
+
+                if should_retry:
+                    continue  # User asked to retry after fixing issues
+
+                try:
+                    self.bus.setup_motor(motor)
+                    motor_setup_success = True
+                    break  # Success, exit retry loop
+                except Exception as e:
+                    print(f"\n  ❌ ERROR: {e}")
+                    print("")
+                    print("  Possible causes:")
+                    print("    • Wrong motor connected (not the one for this ID)")
+                    print("    • Motor not connected or not powered")
+                    print("    • Multiple motors connected (only connect ONE)")
+                    print("    • Voltage limits mismatch (should have been auto-fixed above)")
+                    print("")
+                    print("  Options:")
+                    print("    [r] Retry - fix the issue and try again")
+                    print("    [s] Skip - skip this motor and continue to next")
+                    print("    [q] Quit - exit motor setup")
+                    print("")
+                    print("  Choice [r/s/q]: ", end='', flush=True)
+
+                    choice = tty.readline().strip().lower()
+                    if choice == 's':
+                        print(f"  → Skipping motor {motor_id} ({motor})")
+                        break  # Skip this motor
+                    elif choice == 'q':
+                        print("  → Exiting motor setup")
+                        if tty is not sys.stdin:
+                            tty.close()
+                        return  # Exit setup_motors entirely
+                    else:
+                        # Default to retry
+                        print("  → Retrying...")
+                        continue
+
+            # Only proceed with success message and calibration if motor was set up
+            if not motor_setup_success:
+                continue
+
             # WARNING: Setting voltage limits can damage motors if values don't match your servo specs
             # Uncomment and verify voltage values match your servos before using:
             # self.bus.write("Min_Voltage_Limit", motor, min_voltage_limit, normalize=False)
