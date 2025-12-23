@@ -18,18 +18,55 @@ logger = logging.getLogger(__name__)
 class LocalTTSService:
     """Local text-to-speech using Piper."""
 
-    # Default paths
-    DEFAULT_PIPER_PATH = Path.home() / "Faster-Local-Voice-AI-Whisper" / "piper" / "piper"
-    DEFAULT_VOICES_DIR = Path.home() / "Faster-Local-Voice-AI-Whisper" / "voices"
+    # Default paths (relative to lelampv2 repo directory)
+    @staticmethod
+    def _get_lelamp_dir() -> Path:
+        """Get the lelampv2 directory."""
+        # Try environment variable first
+        if os.environ.get("LELAMP_DIR"):
+            return Path(os.environ["LELAMP_DIR"])
+        # Fall back to relative path from this file
+        return Path(__file__).parent.parent.parent.parent
+
+    @classmethod
+    def _default_piper_path(cls) -> Path:
+        return cls._get_lelamp_dir() / "piper" / "piper"
+
+    @classmethod
+    def _default_voices_dir(cls) -> Path:
+        return cls._get_lelamp_dir() / "piper" / "voices"
+
+    # Legacy paths for backwards compatibility
+    LEGACY_PIPER_PATH = Path.home() / "Faster-Local-Voice-AI-Whisper" / "piper" / "piper"
+    LEGACY_VOICES_DIR = Path.home() / "Faster-Local-Voice-AI-Whisper" / "voices"
 
     def __init__(
         self,
         piper_path: str = None,
         voices_dir: str = None,
-        voice: str = "ryan-medium.onnx",
+        voice: str = "en_US-ryan-medium.onnx",
     ):
-        self.piper_path = Path(piper_path) if piper_path else self.DEFAULT_PIPER_PATH
-        self.voices_dir = Path(voices_dir) if voices_dir else self.DEFAULT_VOICES_DIR
+        # Determine piper path - check new location first, then legacy
+        if piper_path:
+            self.piper_path = Path(piper_path)
+        elif self._default_piper_path().exists():
+            self.piper_path = self._default_piper_path()
+        elif self.LEGACY_PIPER_PATH.exists():
+            self.piper_path = self.LEGACY_PIPER_PATH
+            logger.info(f"Using legacy Piper path: {self.piper_path}")
+        else:
+            self.piper_path = self._default_piper_path()  # Will fail with clear error
+
+        # Determine voices directory - check new location first, then legacy
+        if voices_dir:
+            self.voices_dir = Path(voices_dir)
+        elif self._default_voices_dir().exists():
+            self.voices_dir = self._default_voices_dir()
+        elif self.LEGACY_VOICES_DIR.exists():
+            self.voices_dir = self.LEGACY_VOICES_DIR
+            logger.info(f"Using legacy voices path: {self.voices_dir}")
+        else:
+            self.voices_dir = self._default_voices_dir()  # Will fail with clear error
         self.voice = voice
         self.piper_proc: Optional[asyncio.subprocess.Process] = None
         self._sample_rate: Optional[int] = None

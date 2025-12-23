@@ -88,6 +88,7 @@ show_help() {
     echo "  uv             UV package manager"
     echo "  livekit        LiveKit CLI"
     echo "  raspotify      Spotify Connect"
+    echo "  piper          Piper TTS (local text-to-speech)"
     echo "  python         Python dependencies"
     echo "  udev           Udev rules for USB devices"
     echo "  gpio           GPIO permissions"
@@ -322,8 +323,8 @@ print_final_instructions() {
     echo "  Re-run any component: ./install.sh --component <name>"
     echo "  Or directly: ./install/install_<name>.sh"
     echo ""
-    echo "  Available: audio, dependencies, uv, livekit, raspotify, python,"
-    echo "             udev, gpio, env, motors, service"
+    echo "  Available: audio, dependencies, uv, livekit, raspotify, piper,"
+    echo "             python, udev, gpio, env, motors, service"
 
     echo -e "\n${BLUE}Audio Hardware Reconfiguration:${NC}"
     echo "  ./install/install_audio.sh --choice respeaker-v1"

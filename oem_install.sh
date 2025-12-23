@@ -12,6 +12,7 @@
 #   SKIP_REBOOT        - Set to "true" to skip final reboot
 #   SKIP_AP            - Set to "true" to skip WiFi AP setup
 #   SKIP_USER          - Set to "true" to skip lelamp user creation/password setup
+#   WIFI_COUNTRY       - WiFi regulatory country code (default: CA)
 #
 # Features:
 #   - Ensures script runs as 'lelamp' user (creates if needed)
@@ -184,6 +185,7 @@ check_or_create_lelamp_user() {
     [ -n "$SKIP_REBOOT" ] && env_exports="${env_exports}export SKIP_REBOOT='$SKIP_REBOOT'; "
     [ -n "$SKIP_AP" ] && env_exports="${env_exports}export SKIP_AP='$SKIP_AP'; "
     [ -n "$SKIP_USER" ] && env_exports="${env_exports}export SKIP_USER='$SKIP_USER'; "
+    [ -n "$WIFI_COUNTRY" ] && env_exports="${env_exports}export WIFI_COUNTRY='$WIFI_COUNTRY'; "
     [ -n "$REPO_URL" ] && env_exports="${env_exports}export REPO_URL='$REPO_URL'; "
     [ -n "$REPO_BRANCH" ] && env_exports="${env_exports}export REPO_BRANCH='$REPO_BRANCH'; "
 
@@ -294,7 +296,89 @@ enable_ssh() {
     print_success "SSH enabled and started"
 }
 
-# Step 5: Set hostname
+# Step 5: Configure WiFi country
+configure_wifi_country() {
+    print_header "Configuring WiFi Country"
+
+    local country=""
+
+    # If WIFI_COUNTRY is set via environment, use it
+    if [ -n "$WIFI_COUNTRY" ]; then
+        country="$WIFI_COUNTRY"
+        print_info "Using WiFi country from environment: $country"
+    elif [ "$SKIP_CONFIRM" != "true" ]; then
+        # Interactive mode - show selection menu
+        echo ""
+        echo "Select your WiFi regulatory country:"
+        echo ""
+        echo "  1) CA - Canada (default)"
+        echo "  2) US - United States"
+        echo "  3) GB - United Kingdom"
+        echo "  4) AU - Australia"
+        echo "  5) DE - Germany"
+        echo "  6) FR - France"
+        echo "  7) JP - Japan"
+        echo "  8) Other (enter code manually)"
+        echo ""
+        read -p "Enter choice [1-8] (default: 1): " country_choice < /dev/tty || country_choice="1"
+        country_choice=${country_choice:-1}
+
+        case $country_choice in
+            1) country="CA" ;;
+            2) country="US" ;;
+            3) country="GB" ;;
+            4) country="AU" ;;
+            5) country="DE" ;;
+            6) country="FR" ;;
+            7) country="JP" ;;
+            8)
+                read -p "Enter 2-letter country code: " country < /dev/tty
+                country=$(echo "$country" | tr '[:lower:]' '[:upper:]')
+                ;;
+            *) country="CA" ;;
+        esac
+    else
+        # Non-interactive mode - default to Canada
+        country="CA"
+    fi
+
+    print_info "Setting WiFi regulatory country to: $country"
+
+    # Check if rfkill shows WiFi as blocked
+    if command -v rfkill &> /dev/null; then
+        if rfkill list wifi 2>/dev/null | grep -q "Soft blocked: yes"; then
+            print_info "WiFi is currently blocked by rfkill"
+        fi
+    fi
+
+    # Set country using raspi-config (most reliable method)
+    if command -v raspi-config &> /dev/null; then
+        sudo raspi-config nonint do_wifi_country "$country" 2>/dev/null || true
+        print_success "WiFi country set to $country"
+    else
+        # Fallback: directly set regulatory domain
+        if command -v iw &> /dev/null; then
+            sudo iw reg set "$country" 2>/dev/null || true
+        fi
+        # Also update wpa_supplicant.conf
+        if [ -f /etc/wpa_supplicant/wpa_supplicant.conf ]; then
+            if ! grep -q "country=" /etc/wpa_supplicant/wpa_supplicant.conf; then
+                echo "country=$country" | sudo tee -a /etc/wpa_supplicant/wpa_supplicant.conf > /dev/null
+            else
+                sudo sed -i "s/^country=.*/country=$country/" /etc/wpa_supplicant/wpa_supplicant.conf
+            fi
+        fi
+        print_success "WiFi regulatory domain set to $country"
+    fi
+
+    # Unblock WiFi if blocked
+    if command -v rfkill &> /dev/null; then
+        sudo rfkill unblock wifi 2>/dev/null || true
+        print_success "WiFi unblocked"
+    fi
+}
+
+# Step 6: Set hostname
 set_hostname() {
     print_header "Setting Hostname"
 
@@ -703,7 +787,7 @@ main() {
     # This will create the user if needed and exit with instructions
     check_or_create_lelamp_user
 
-    local total_steps=15
+    local total_steps=16
 
     print_step 1 $total_steps "Initializing OEM installation"
     init_oem_install
@@ -717,37 +801,40 @@ main() {
     print_step 4 $total_steps "Enabling SSH"
     enable_ssh
 
-    print_step 5 $total_steps "Setting hostname"
+    print_step 5 $total_steps "Configuring WiFi country"
+    configure_wifi_country
+
+    print_step 6 $total_steps "Setting hostname"
     set_hostname
 
-    print_step 6 $total_steps "Cloning repository"
+    print_step 7 $total_steps "Cloning repository"
     clone_repository
 
-    print_step 7 $total_steps "Configuring WiFi AP"
+    print_step 8 $total_steps "Configuring WiFi AP"
     setup_wifi_ap
 
-    print_step 8 $total_steps "Setting up Tailscale"
+    print_step 9 $total_steps "Setting up Tailscale"
     setup_tailscale
 
-    print_step 9 $total_steps "Setting up rpi-connect"
+    print_step 10 $total_steps "Setting up rpi-connect"
     setup_rpi_connect
 
-    print_step 10 $total_steps "Collecting system info"
+    print_step 11 $total_steps "Collecting system info"
     collect_system_info
 
-    print_step 11 $total_steps "Running main installer"
+    print_step 12 $total_steps "Running main installer"
     run_main_installer
 
-    print_step 12 $total_steps "Creating first boot config"
+    print_step 13 $total_steps "Creating first boot config"
     create_first_boot_marker
 
-    print_step 13 $total_steps "Registering with Hub"
+    print_step 14 $total_steps "Registering with Hub"
     register_with_hub
 
-    print_step 14 $total_steps "Creating AP service"
+    print_step 15 $total_steps "Creating AP service"
     create_ap_service
 
-    print_step 15 $total_steps "Finalizing"
+    print_step 16 $total_steps "Finalizing"
     print_summary_and_reboot
 }
 
