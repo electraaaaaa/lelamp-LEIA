@@ -167,6 +167,60 @@ This branch introduces major architectural improvements and new capabilities:
 
 ## Installation
 
+### OEM Install (Manufacturing/Mass Provisioning)
+
+For manufacturing or provisioning multiple devices, use the OEM install script. This script automates the complete setup of a fresh Raspberry Pi:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/humancomputerlab/lelampv2/main/oem_install.sh | bash
+```
+
+**With remote access (Tailscale + Raspberry Pi Connect):**
+
+```bash
+TAILSCALE_AUTH_KEY=tskey-xxx RPI_CONNECT_KEY=xxx curl -sSL https://raw.githubusercontent.com/humancomputerlab/lelampv2/main/oem_install.sh | bash
+```
+
+#### What OEM Install Does
+
+1. Creates `lelamp` user with default password (`lelamp`)
+2. Reads device serial number from hardware
+3. Sets hostname to `lelamp-SERIAL` (last 8 chars of serial)
+4. Enables SSH access
+5. Configures WiFi regulatory country
+6. Sets up WiFi AP mode for first-time setup (`lelamp_SERIAL` / `lelamp123`)
+7. Installs Tailscale for remote VPN access (if key provided)
+8. Installs Raspberry Pi Connect for remote desktop (if key provided)
+9. Runs the full LeLamp component installation
+10. Installs Piper TTS and Ollama for local AI
+11. Registers device with Hub server (if configured)
+12. Reboots into setup mode
+
+#### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `TAILSCALE_AUTH_KEY` | Tailscale authentication key for VPN access |
+| `RPI_CONNECT_KEY` | Raspberry Pi Connect key for remote desktop |
+| `HUB_URL` | LeLamp Hub server URL for device registration |
+| `SKIP_REBOOT` | Set to `true` to skip final reboot |
+| `SKIP_AP` | Set to `true` to skip WiFi AP setup |
+| `SKIP_USER` | Set to `true` to skip lelamp user creation |
+| `WIFI_COUNTRY` | WiFi regulatory country code (default: `CA`) |
+| `LOCAL_AI` | Set to `false` to skip Piper/Ollama installation |
+| `REPO_URL` | Custom repository URL |
+| `REPO_BRANCH` | Repository branch to clone (default: `main`) |
+
+#### After OEM Install
+
+Once the device reboots:
+- **With AP mode**: Connect to WiFi `lelamp_XXXXXXXX`, then open `http://192.168.4.1`
+- **With Tailscale**: Access via `lelamp-XXXXXXXX` on your Tailnet
+- **With RPI Connect**: Access via Raspberry Pi Connect dashboard
+- **Local network**: Access via `http://lelamp-XXXXXXXX.local`
+
+---
+
 ### Quick Install (Recommended)
 
 Run this one-liner on your Raspberry Pi to install everything:
