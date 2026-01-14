@@ -13,8 +13,6 @@ import subprocess
 import asyncio
 from typing import Optional
 
-from livekit.agents import Agent
-
 # Import function tool mixins
 from lelamp.functions import (
     MotorFunctions,
@@ -40,7 +38,6 @@ logger = logging.getLogger(__name__)
 
 
 class LeLamp(
-    Agent,
     MotorFunctions,
     RGBFunctions,
     AnimationFunctions,

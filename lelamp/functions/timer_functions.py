@@ -9,13 +9,13 @@ This module contains all timer/alarm-related function tools including:
 import logging
 from typing import Union
 from datetime import datetime, timedelta
-from livekit.agents import function_tool
+from lelamp.service.agent.tools import Tool
 
 
 class TimerFunctions:
     """Mixin class providing timer and alarm function tools"""
 
-    @function_tool
+    @Tool.register_tool
     async def set_timer(self, duration_seconds: Union[int, float], label: str = None) -> str:
         """
         Set a countdown timer! Use this when someone asks you to set a timer or remind them
@@ -61,7 +61,7 @@ class TimerFunctions:
         except Exception as e:
             return f"Error setting timer: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def cancel_timer(self, timer_id: int) -> str:
         """
         Cancel an active timer. Use this when someone asks you to stop, cancel, or end
@@ -85,7 +85,7 @@ class TimerFunctions:
         except Exception as e:
             return f"Error cancelling timer: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def list_timers(self) -> str:
         """
         Check all active timers. Use this when someone asks what timers are running,
@@ -124,7 +124,7 @@ class TimerFunctions:
         except Exception as e:
             return f"Error listing timers: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def set_alarm(
         self,
         time_str: str,
@@ -223,7 +223,7 @@ class TimerFunctions:
         except Exception as e:
             return f"Error setting alarm: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def list_alarms(self) -> str:
         """
         List all alarms. Use this when someone asks what alarms are set, wants to see
@@ -269,7 +269,7 @@ class TimerFunctions:
         except Exception as e:
             return f"Error listing alarms: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def enable_alarm(self, alarm_id: int) -> str:
         """
         Enable a disabled alarm. Use this when someone asks you to turn on,
@@ -293,7 +293,7 @@ class TimerFunctions:
         except Exception as e:
             return f"Error enabling alarm: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def disable_alarm(self, alarm_id: int) -> str:
         """
         Disable an enabled alarm. Use this when someone asks you to turn off,
@@ -321,7 +321,7 @@ class TimerFunctions:
         except Exception as e:
             return f"Error disabling alarm: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def delete_alarm(self, alarm_id: int) -> str:
         """
         Permanently delete an alarm. Use this when someone asks you to remove,

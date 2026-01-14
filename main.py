@@ -299,7 +299,8 @@ if __name__ == "__main__":
                 worker_options = g.livekit_service.get_worker_options()
                 if worker_options:
                     try:
-                        agents.cli.run_app(worker_options)
+                        # agents.cli.run_app(worker_options)
+                        pass
                     except KeyboardInterrupt:
                         print("\nShutting down...")
                     except Exception as e:

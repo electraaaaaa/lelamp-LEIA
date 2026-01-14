@@ -8,13 +8,13 @@ This module contains all sleep/wake-related function tools including:
 
 import logging
 import asyncio
-from livekit.agents import function_tool
+from lelamp.service.agent.tools import Tool
 
 
 class SleepFunctions:
     """Mixin class providing sleep/wake function tools"""
 
-    @function_tool
+    @Tool.register_tool
     async def go_to_sleep(self) -> str:
         """
         Put LeLamp to sleep! Use this when someone says goodnight, go to sleep,
@@ -172,7 +172,7 @@ class SleepFunctions:
         except Exception as e:
             return f"Error going to sleep: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def wake_up(self) -> str:
         """
         Wake LeLamp up from sleep! Use this when someone says wake up, good morning,
@@ -290,7 +290,7 @@ class SleepFunctions:
         except Exception as e:
             return f"Error waking up: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def shutdown_system(self) -> str:
         """
         Shut down the entire system (Raspberry Pi)! Use this when someone asks you to

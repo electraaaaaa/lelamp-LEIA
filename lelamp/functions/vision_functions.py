@@ -7,13 +7,13 @@ This module contains vision-related function tools including:
 """
 
 import logging
-from livekit.agents import function_tool
+from lelamp.service.agent.tools import Tool
 
 
 class VisionFunctions:
     """Mixin class providing vision function tools"""
 
-    @function_tool
+    @Tool.register_tool
     async def describe_scene(self) -> str:
         """
         Describe what you currently see through your camera. Use this when someone asks
@@ -97,7 +97,7 @@ class VisionFunctions:
             logging.error(f"Error in describe_scene: {e}")
             return f"Error analyzing scene: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def get_scene_details(self) -> str:
         """
         Get detailed, structured information about the current scene. This returns

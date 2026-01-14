@@ -13,6 +13,7 @@ import logging
 import os
 from typing import Optional, Tuple
 from livekit.agents import function_tool
+from lelamp.service.agent.tools import Tool
 
 
 def _check_spotify_enabled() -> Tuple[bool, str]:
@@ -44,7 +45,7 @@ def _check_spotify_enabled() -> Tuple[bool, str]:
 class SpotifyFunctions:
     """Mixin class providing Spotify control function tools"""
 
-    @function_tool
+    @Tool.register_tool
     async def spotify_play(self, query: Optional[str] = None) -> str:
         """
         Play music on Spotify! Use this when users ask to play music, songs, artists,
@@ -110,7 +111,7 @@ class SpotifyFunctions:
         except Exception as e:
             return f"Error playing music: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def spotify_pause(self) -> str:
         """
         Pause Spotify playback. Use when users say "pause", "stop the music",
@@ -136,7 +137,7 @@ class SpotifyFunctions:
         except Exception as e:
             return f"Error pausing: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def spotify_next(self) -> str:
         """
         Skip to the next track. Use when users say "next song", "skip",
@@ -168,7 +169,7 @@ class SpotifyFunctions:
         except Exception as e:
             return f"Error skipping: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def spotify_previous(self) -> str:
         """
         Go back to the previous track. Use when users say "previous song",
@@ -199,7 +200,7 @@ class SpotifyFunctions:
         except Exception as e:
             return f"Error going back: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def spotify_current(self) -> str:
         """
         Get info about what's currently playing. Use when users ask
@@ -229,7 +230,7 @@ class SpotifyFunctions:
         except Exception as e:
             return f"Error getting current track: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def spotify_volume(self, volume_percent: int) -> str:
         """
         Set Spotify playback volume. Use when users want to adjust music volume
@@ -262,7 +263,7 @@ class SpotifyFunctions:
         except Exception as e:
             return f"Error setting volume: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def spotify_shuffle(self, enabled: bool) -> str:
         """
         Turn shuffle on or off. Use when users say "shuffle", "turn on shuffle",
@@ -291,7 +292,7 @@ class SpotifyFunctions:
         except Exception as e:
             return f"Error setting shuffle: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def spotify_play_playlist(self, playlist_name: str) -> str:
         """
         Play a specific playlist. Searches user's playlists first, then Spotify.
@@ -328,7 +329,7 @@ class SpotifyFunctions:
         except Exception as e:
             return f"Error playing playlist: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def spotify_play_liked(self) -> str:
         """
         Play the user's liked/saved songs. Use when users say
@@ -358,7 +359,7 @@ class SpotifyFunctions:
         except Exception as e:
             return f"Error playing liked songs: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def spotify_add_to_queue(self, song_name: str) -> str:
         """
         Add a song to the queue. Use when users want to queue up a song
@@ -397,7 +398,7 @@ class SpotifyFunctions:
         except Exception as e:
             return f"Error adding to queue: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def spotify_search(self, query: str) -> str:
         """
         Search Spotify without playing. Use when users want to find music

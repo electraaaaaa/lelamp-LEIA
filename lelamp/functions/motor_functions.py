@@ -7,7 +7,7 @@ This module contains all motor-related function tools including:
 """
 
 import logging
-from livekit.agents import function_tool
+from lelamp.service.agent.tools import Tool
 
 
 class MotorFunctions:
@@ -21,7 +21,7 @@ class MotorFunctions:
             return "Motor control is not available - animation service not initialized."
         return None
 
-    @function_tool
+    @Tool.register_tool
     async def set_motor_preset(self, preset: str) -> str:
         """
         Change how your motors behave! Switch between movement presets to adjust your
@@ -62,7 +62,7 @@ class MotorFunctions:
         except Exception as e:
             return f"Error setting motor preset: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def set_pushable_mode(self, enabled: bool) -> str:
         """
         Enable or disable pushable mode - allows humans to physically move you by hand!

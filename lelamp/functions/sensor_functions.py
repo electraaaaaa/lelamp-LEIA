@@ -13,13 +13,13 @@ from datetime import datetime
 import aiohttp
 import pytz
 import feedparser
-from livekit.agents import function_tool
+from lelamp.service.agent.tools import Tool
 
 
 class SensorFunctions:
     """Mixin class providing sensor and data function tools"""
 
-    @function_tool
+    @Tool.register_tool
     async def get_current_datetime(self) -> str:
         """
         Get the current local date and time. Use this when someone asks what time it is,
@@ -47,7 +47,7 @@ class SensorFunctions:
         except Exception as e:
             return f"Error getting time: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def get_ip_address(self) -> str:
         """
         Get your network IP addresses! Use this when someone asks for your IP address,
@@ -105,7 +105,7 @@ class SensorFunctions:
 
         return "\n".join(result_lines)
 
-    @function_tool
+    @Tool.register_tool
     async def get_weather(self) -> str:
         """
         Get the current weather conditions for your location. Use this when someone asks
@@ -169,7 +169,7 @@ class SensorFunctions:
         except Exception as e:
             return f"Error getting weather: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def get_news(self, topic: str = "top") -> str:
         """
         Get the latest news headlines. Use this when someone asks about current events,
@@ -212,7 +212,7 @@ class SensorFunctions:
         except Exception as e:
             return f"Error getting news: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def get_face_tracking(self) -> str:
         """
         Detect if someone is looking at you and where they are! Use this to see if
@@ -279,7 +279,7 @@ class SensorFunctions:
         except Exception as e:
             return f"Error getting face tracking data: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def enable_face_tracking_mode(self) -> str:
         """
         Enable face tracking mode - I'll automatically follow faces with my movement!
@@ -360,7 +360,7 @@ class SensorFunctions:
         except Exception as e:
             return f"Error enabling face tracking mode: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def disable_face_tracking_mode(self) -> str:
         """
         Disable face tracking mode - I'll stop following faces automatically.
@@ -396,7 +396,7 @@ class SensorFunctions:
         except Exception as e:
             return f"Error disabling face tracking mode: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def look_at_face(self) -> str:
         """
         Look at the nearest detected face - a one-time adjustment to face whoever is there.

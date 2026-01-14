@@ -9,13 +9,13 @@ This module contains all workflow-related function tools including:
 
 import logging
 from typing import Optional, Dict
-from livekit.agents import function_tool
+from lelamp.service.agent.tools import Tool
 
 
 class WorkflowFunctions:
     """Mixin class providing workflow management function tools"""
 
-    @function_tool
+    @Tool.register_tool
     async def get_available_workflows(self) -> str:
         """
         Discover what workflows you can execute! Get your repertoire of multi-step workflows.
@@ -40,7 +40,7 @@ class WorkflowFunctions:
             result = f"Error getting workflows: {str(e)}"
             return result
 
-    @function_tool
+    @Tool.register_tool
     async def list_enabled_workflows(self) -> str:
         """
         Get list of enabled workflows with their current status and metadata. Use this
@@ -69,7 +69,7 @@ class WorkflowFunctions:
         except Exception as e:
             return f"Error listing workflows: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def start_workflow(self, workflow_name: str) -> str:
         """
         Start a workflow execution! This begins a multi-step workflow that will guide you
@@ -98,7 +98,7 @@ class WorkflowFunctions:
             result = f"Error starting workflow {workflow_name}: {str(e)}"
             return result
 
-    @function_tool
+    @Tool.register_tool
     async def get_next_step(self) -> str:
         """
         Get the current step in the active workflow with full context. This tells you:
@@ -125,7 +125,7 @@ class WorkflowFunctions:
             result = f"Error getting next step: {str(e)}"
             return result
 
-    @function_tool
+    @Tool.register_tool
     async def complete_step(self) -> str:
         """
         Complete the current workflow step and advance to the next one.
@@ -149,7 +149,7 @@ class WorkflowFunctions:
             result = f"Error completing step: {str(e)}"
             return result
 
-    @function_tool
+    @Tool.register_tool
     async def complete_step_with_state(self, state_updates: str) -> str:
         """
         Complete the current workflow step and update state variables.
@@ -183,7 +183,7 @@ class WorkflowFunctions:
             result = f"Error completing step: {str(e)}"
             return result
 
-    @function_tool
+    @Tool.register_tool
     async def get_workflow_status(self, workflow_name: str = None) -> str:
         """
         Get detailed status and history of a specific workflow or the currently active one.

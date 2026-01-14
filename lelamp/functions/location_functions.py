@@ -8,13 +8,13 @@ This module contains location-related function tools including:
 
 import logging
 import httpx
-from livekit.agents import function_tool
+from lelamp.service.agent.tools import Tool
 
 
 class LocationFunctions:
     """Mixin class providing location function tools"""
 
-    @function_tool
+    @Tool.register_tool
     async def set_location(self, city: str) -> str:
         """
         Set the user's location by city name. Use this when someone asks you to change
@@ -135,7 +135,7 @@ class LocationFunctions:
             logging.error(f"Error setting location: {e}")
             return f"Error setting location: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def get_location(self) -> str:
         """
         Get the current configured location. Use this when someone asks where their

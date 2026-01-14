@@ -7,7 +7,7 @@ This module contains all animation-related function tools including:
 """
 
 import logging
-from livekit.agents import function_tool
+from lelamp.service.agent.tools import Tool
 
 
 class AnimationFunctions:
@@ -21,7 +21,7 @@ class AnimationFunctions:
             return "Animation is not available - animation service not initialized."
         return None
 
-    @function_tool
+    @Tool.register_tool
     async def get_available_recordings(self) -> str:
         """
         Discover your physical expressions! Get your repertoire of motor movements for body language.
@@ -55,7 +55,7 @@ class AnimationFunctions:
             result = f"Error getting recordings: {str(e)}"
             return result
 
-    @function_tool
+    @Tool.register_tool
     async def play_recording(self, recording_name: str) -> str:
 
         """
@@ -97,7 +97,7 @@ class AnimationFunctions:
             result = f"Error playing recording {recording_name}: {str(e)}"
             return result
 
-    @function_tool
+    @Tool.register_tool
     async def stop_dancing(self) -> str:
         """
         Stop bobbing/dancing to music. Use this when the user says things like
@@ -120,7 +120,7 @@ class AnimationFunctions:
         except Exception as e:
             return f"Error stopping dance mode: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def start_dancing(self) -> str:
         """
         Start bobbing/dancing to music. Use this when the user says things like
@@ -142,7 +142,7 @@ class AnimationFunctions:
         except Exception as e:
             return f"Error starting dance mode: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def set_dance_intensity(self, intensity: str) -> str:
         """
         Adjust how intensely you dance/bob to music. Use when user says things like

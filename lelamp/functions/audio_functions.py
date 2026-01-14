@@ -11,13 +11,12 @@ This module contains all audio-related function tools including:
 import logging
 import subprocess
 from typing import Optional
-from livekit.agents import function_tool
-
+from lelamp.service.agent.tools import Tool
 
 class AudioFunctions:
     """Mixin class providing audio control function tools"""
 
-    @function_tool
+    @Tool.register_tool
     async def set_volume(self, volume_percent: int) -> str:
         """
         Control system audio volume for better interaction experience! Use this when users ask
@@ -60,7 +59,7 @@ class AudioFunctions:
             print(result)
             return result
 
-    @function_tool
+    @Tool.register_tool
     async def set_microphone_volume(self, volume_percent: int) -> str:
         """
         Control microphone/input volume for voice capture sensitivity! Use this when users say
@@ -107,7 +106,7 @@ class AudioFunctions:
             print(result)
             return result
 
-    @function_tool
+    @Tool.register_tool
     async def play_sound_effect(self, sound_name: str) -> str:
         """
         Play a sound effect to enhance your expressiveness! Use sounds to punctuate moments,
@@ -145,7 +144,7 @@ class AudioFunctions:
         except Exception as e:
             return f"Error playing sound: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def list_available_sounds(self, category: Optional[str] = None) -> str:
         """
         Get a list of all available sound effects you can play. Use this when you want to
@@ -190,7 +189,7 @@ class AudioFunctions:
         except Exception as e:
             return f"Error listing sounds: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def search_sounds(self, query: str) -> str:
         """
         Search for specific sounds by name or keyword. Use this when you need a particular

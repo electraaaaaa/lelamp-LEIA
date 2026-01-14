@@ -9,7 +9,7 @@ This module contains all RGB/lighting-related function tools including:
 """
 
 import logging
-from livekit.agents import function_tool
+from lelamp.service.agent.tools import Tool
 
 
 class RGBFunctions:
@@ -23,7 +23,7 @@ class RGBFunctions:
             self.rgb_service._running.is_set()
         )
 
-    @function_tool
+    @Tool.register_tool
     async def set_rgb_solid(self, red: int, green: int, blue: int) -> str:
         """
         Express emotions and moods by changing your lamp color! Use this to show feelings during conversation.
@@ -77,7 +77,7 @@ class RGBFunctions:
             result = f"Error setting RGB color: {str(e)}"
             return result
 
-    @function_tool
+    @Tool.register_tool
     async def play_rgb_animation(self, animation_name: str, red: int = None, green: int = None, blue: int = None, duration: float = None) -> str:
         """
         Play expressive RGB light animations! Use this to enhance your emotional expression through dynamic lighting.
@@ -154,7 +154,7 @@ class RGBFunctions:
             result = f"Error playing RGB animation: {str(e)}"
             return result
 
-    @function_tool
+    @Tool.register_tool
     async def list_rgb_animations(self) -> str:
         """
         Get a list of all available RGB animations with their descriptions.
@@ -179,7 +179,7 @@ class RGBFunctions:
         except Exception as e:
             return f"Error listing RGB animations: {str(e)}"
 
-    @function_tool
+    @Tool.register_tool
     async def paint_rgb_pattern(self, colors: list) -> str:
         """
         Create dynamic visual patterns and animations with your lamp! Use this for complex expressions.
