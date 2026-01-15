@@ -97,9 +97,6 @@ def init_hardware_services():
     elif not detection["camera_detected"]:
         logger.info("USB camera not detected (audio capture may fail)")
 
-    # LiveKit Service - initialize first (needed for agent)
-    # _init_livekit_service(config)
-
     # RGB Service - default enabled
     if config.get("rgb", {}).get("enabled", True):
         _init_rgb_service(config)
@@ -116,9 +113,6 @@ def init_hardware_services():
 
     # Audio Service - always start (needed for system sounds)
     _init_audio_service(config)
-
-    # Microphone Service - for local VAD and echo cancellation
-    # _init_microphone_service(config)
 
     # Audio Router - routes processed audio through loopback to LiveKit
     _init_audio_router(config)
@@ -141,13 +135,15 @@ def init_hardware_services():
     else:
         logger.info("Spotify disabled in config")
 
+    # Set the callback function to use gesture control
+    g.vision_service.set_hand_callback(g.animation_service.hand_control_callback)
+
     # Set system volumes
     _set_system_volumes(config)
 
     import asyncio
     from lelamp.service.agent.agent_service import init_agent_service
     def run_async_in_thread():
-        # 直接在线程里运行 asyncio.run
         asyncio.run(init_agent_service())
     thread = threading.Thread(target=run_async_in_thread)
     thread.start()

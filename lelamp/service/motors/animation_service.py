@@ -858,7 +858,7 @@ class AnimationService:
             # 可选：当不捏合时，不做任何事，或者让它慢慢回到原点
             pass
 
-    def calculate_hand_target_angles(x: float, y: float) -> tuple[float, float]:
+    def calculate_hand_target_angles(self, x: float, y: float) -> tuple[float, float]:
         """
         根据手部位置计算目标电机角度。
 

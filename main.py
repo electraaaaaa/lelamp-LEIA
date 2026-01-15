@@ -10,10 +10,8 @@ Architecture:
   - This file orchestrates startup and cleanup
 """
 
-import asyncio
 import atexit
 import logging
-import os
 import signal
 import sys
 import time
@@ -198,6 +196,3 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, keep_alive)
     signal.signal(signal.SIGTERM, keep_alive)
 
-    print("Press Ctrl+C to exit...")
-    while True:
-        time.sleep(0.01)

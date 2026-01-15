@@ -3,324 +3,25 @@ import logging
 import threading
 from typing import Callable, Optional
 
-from RPi.GPIO import output
 from deepgram import AsyncDeepgramClient
 import asyncio
 from deepgram.core.events import EventType
 
-# 配置日志
-logging.basicConfig(level=logging.INFO, force=True)
-logger = logging.getLogger("Agent_Service")
-
-class FluxListener:
-    _instance = None
-    _lock = threading.Lock()
-
-    def __new__(cls, *args, **kwargs):
-        """单例模式"""
-        if not cls._instance:
-            with cls._lock:
-                if not cls._instance:
-                    cls._instance = super(FluxListener, cls).__new__(cls)
-        return cls._instance
-
-    def __init__(self):
-        """初始化基础状态，确保不会重复初始化"""
-        if getattr(self, "_initialized", False):
-            return
-
-        self.dg_client: Optional[AsyncDeepgramClient] = None
-        self.dg_connection = None
-        self.input_stream = None
-        self.is_running = False
-        self._loop = None
-        self._connection_task = None
-
-        # 回调函数容器 (外部注入)
-        self.on_speech_start: Optional[Callable] = None
-        self.on_transcript_update: Optional[Callable] = None
-        self.on_turn_complete: Optional[Callable] = None
-        self.on_error: Optional[Callable] = None
-
-        self._transcript_buffer = []
-        self._initialized = True
-
-    def initialize(self,
-                   api_key: str,
-                   on_speech_start: Callable = None,
-                   on_turn_complete: Callable = None,
-                   on_transcript_update: Callable = None,
-                   device_index: int = None):
-        """
-        配置 Deepgram 和回调函数
-        """
-        self.dg_client = AsyncDeepgramClient(api_key=api_key)
-        self.on_speech_start = on_speech_start
-        self.on_turn_complete = on_turn_complete
-        self.on_transcript_update = on_transcript_update
-        self.device_index = device_index
-
-        logger.info("FluxListener initialized (Singleton).")
-
-    async def start(self):
-        """启动 Deepgram 连接和麦克风流"""
-        if self.is_running:
-            logger.warning("Listener is already running.")
-            return
-
-            # 创建或获取事件循环
-        try:
-            self._loop = asyncio.get_running_loop()
-        except RuntimeError:
-            self._loop = asyncio.new_event_loop()
-            threading.Thread(target=self._loop.run_forever, daemon=True).start()
-
-        # 启动 Sounddevice 输入流
-        try:
-            self.input_stream = sd.InputStream(
-                device=self.device_index,
-                channels=1,
-                samplerate=16000,
-                dtype="int16",
-                callback=self._audio_callback,
-                blocksize=1024
-            )
-            self.input_stream.start()
-            self.is_running = True
-            logger.info("Microphone listening started...")
-
-        except Exception as e:
-            logger.error(f"Microphone Error: {e}")
-            self.stop()
-        await self._run_connection()
-
-    async def _run_connection(self):
-        """保持连接活跃的异步方法"""
-        try:
-            options = {
-                "model": "flux-general-en",
-                "encoding": "linear16",
-                "sample_rate": "16000",
-                "eot_timeout_ms": 1000,
-            }
-
-            # 保持连接打开
-            async with self.dg_client.listen.v2.connect(**options) as connection:
-                self.dg_connection = connection
-                self._register_events(connection)
-                await connection.start_listening()
-
-                # 保持连接活跃，直到 stop() 被调用
-                while self.is_running:
-                    await asyncio.sleep(0.1)
-
-        except Exception as e:
-            logger.error(f"Deepgram Connection Error: {e}")
-            if self.on_error:
-                self.on_error(e)
-
-    def stop(self):
-        """停止监听并释放资源"""
-        self.is_running = False
-
-        if self.input_stream:
-            self.input_stream.stop()
-            self.input_stream.close()
-            self.input_stream = None
-
-        if self._connection_task and not self._connection_task.done():
-            self._connection_task.cancel()
-
-        if self._loop and self._loop.is_running():
-            self._loop.call_soon_threadsafe(self._loop.stop)
-
-        logger.info("FluxListener stopped.")
-
-    def _audio_callback(self, indata, frames, time, status):
-        """SoundDevice 的回调：将音频推送到 Deepgram"""
-        if status:
-            logger.warning(f"Audio status: {status}")
-        # print(indata)
-
-        if self.dg_connection and self.is_running:
-            # print("sent")
-            # 在事件循环中发送音频数据
-            if self._loop and self._loop.is_running():
-                self._loop.call_soon_threadsafe(
-                    lambda: asyncio.create_task(
-                        self.dg_connection.send_media(bytes(indata))
-                    )
-                )
-        else:
-            print(self.dg_connection, self.is_running)
-
-    def _dispatch_callback(self, callback, *args):
-        """[新增] 辅助函数：安全地从同步回调中调用异步或同步函数"""
-        if not callback:
-            return
-
-        if asyncio.iscoroutinefunction(callback):
-            # 如果是异步函数，且循环正在运行，则线程安全地提交任务
-            if self._loop and self._loop.is_running():
-                asyncio.run_coroutine_threadsafe(callback(*args), self._loop)
-            else:
-                logger.error("Event loop is not running, cannot schedule async callback")
-        else:
-            # 如果是普通同步函数，直接调用
-            callback(*args)
-
-    def _register_events(self, connection):
-        """绑定 Deepgram 内部事件到外部回调"""
-
-        def on_message(message):
-            if hasattr(message, 'type'):
-                if message.type == "TurnInfo":
-                    if hasattr(message, 'event') and message.event=='EndOfTurn':
-                        transcript = message.transcript
-                        self._dispatch_callback(self.on_turn_complete, transcript)
-
-            else:
-                print(message)
-        def on_speech_started():
-            """Flux 核心：打断信号"""
-            logger.info(">> User started speaking (Barge-in)")
-            if self.on_speech_start:
-                self.on_speech_start()
-
-        def on_utterance_end():
-            """Flux 核心：话轮结束"""
-            if self._transcript_buffer:
-                full_text = " ".join(self._transcript_buffer).strip()
-                self._transcript_buffer = []
-
-                logger.info(f"End of turn detected. Text: {full_text}")
-
-                if self.on_turn_complete and full_text:
-                    self.on_turn_complete(full_text)
-
-                    # 注册事件处理器
-        connection.on(EventType.MESSAGE, on_message)
-        connection.on(EventType.OPEN, lambda _: logger.info("Connection opened"))
-        connection.on(EventType.CLOSE, lambda _: logger.info("Connection closed"))
-        connection.on(EventType.ERROR, lambda error: logger.error(f"Error: {error}"))
-
-
+import websockets
+import json
+import base64
 import os
 import queue
 from dotenv import load_dotenv
-
-# 加载 API Key
-load_dotenv()
-DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-
-import os
-
 from groq import Groq
 from lelamp.service.agent.tools import Tool
 
-# class LLM:
-#     def __init__(self):
-#         self.is_speaking = False
-#         self.response_queue = queue.Queue()
-#         self.client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
-#         self.chat_history = [
-#             {
-#                 "role": "system",
-#                 "content": ""
-#             }
-#         ]
-#         self.agent = Agent()
-#
-#     def handle_interruption(self):
-#         """
-#         Interruption callback
-#         """
-#         pass  # Not Implemented
-#
-#     async def handle_user_input(self, text):
-#         """
-#         Full sentence process callback
-#         """
-#         try:
-#             logger.info(f"LLM received from user, requesting: {text}'")
-#             self.chat_history.append({"role": "user", "content": text})
-#             chat_completion = self.client.chat.completions.create(
-#                 messages=self.chat_history,
-#                 model="llama-3.3-70b-versatile",
-#                 tools=Tool.tools_schema[:3],
-#                 tool_choice="required",
-#
-#             )
-#             message = chat_completion.choices[0].message
-#             logger.info(f"LLM response received: {message}")
-#         except Exception as e:
-#             logger.critical(f"Error{e}")
-#         # Check if tools called
-#         if message.tool_calls:
-#             logger.info(f"LLM Calling {len(message.tool_calls) }tools...")
-#
-#             # 4. 依次执行工具
-#             for tool_call in message.tool_calls:
-#                 func_name = tool_call.function.name
-#                 args = tool_call.function.arguments
-#                 call_id = tool_call.id
-#
-#                 logger.info(f"   -> Execute: {func_name}({args})")
-#                 result = await Tool.execute(func_name, args, self.agent) or "Success"
-#                 logger.info(f"   <- Result: {result}")
-#
-#                 # 5. 将结果作为 role='tool' 存入历史
-#                 self.chat_history.append({
-#                     "role": "tool",
-#                     "tool_call_id": call_id,
-#                     "name": func_name,
-#                     "content": result
-#                 })
-#
-#             # 6. 第二轮调用：把工具结果发回给 LLM，获取最终回复
-#             logger.info("Second request")
-#             final_completion = self.client.chat.completions.create(
-#                 messages=self.chat_history,
-#                 model="llama-3.3-70b-versatile",
-#                 # 第二轮通常不需要再强制 tool_choice，除非是多步复杂任务
-#             )
-#             final_response = final_completion.choices[0].message.content
-#             self.chat_history.append({"role": "assistant", "content": final_response})
-#             logger.info(f"Final response: {message.content}")
-#             return final_response
-#
-#         else:
-#             # No tool call, output
-#             logger.info(f"Final response: {message.content}")
-#             return message.content
-#
-#     def handle_transcript_update(self, text, is_final):
-#         pass  # Not Implemented or legacy
-#
-#     def synthesize_and_play(self, text):
-#         pass  # Not Implemented
+logging.basicConfig(level=logging.INFO, force=True)
+logger = logging.getLogger("Agent_Service")
 
-# --- 主程序 ---
-# async def init_agent_service():
-#     # 1. 实例化业务逻辑
-#     bot = LLM()
-#
-#     # 2. 获取单例的听觉模块
-#     listener = FluxListener()
-#
-#     # 3. 初始化并注入依赖 (Dependency Injection)
-#     # 关键点：将 bot 的方法传给 listener，实现解耦
-#     listener.initialize(
-#         api_key=DEEPGRAM_API_KEY,
-#         on_speech_start=bot.handle_interruption,       # 绑定打断逻辑
-#         on_turn_complete=bot.handle_user_input,        # 绑定对话逻辑
-#         on_transcript_update=bot.handle_transcript_update # 绑定 UI 逻辑
-#     )
-#
-#     # 4. 启动
-#     print("系统启动中... (按 Ctrl+C 退出)")
-#     await listener.start()
+load_dotenv()
+DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 from lelamp.functions import (
     MotorFunctions,
@@ -445,13 +146,6 @@ class Agent(
         except Exception:
             pass
 
-import asyncio
-import websockets
-import json
-import base64
-import sounddevice as sd
-import os
-import queue
 async def init_agent_service():
     bot = LLM()
     await bot.start()
@@ -636,3 +330,285 @@ class LLM:
 
 if __name__ == "__main__":
     asyncio.run(init_agent_service())
+
+# Below are not using
+class LLM_groq:
+    def __init__(self):
+        self.is_speaking = False
+        self.response_queue = queue.Queue()
+        self.client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+        self.chat_history = [
+            {
+                "role": "system",
+                "content": ""
+            }
+        ]
+        self.agent = Agent()
+
+    def handle_interruption(self):
+        """
+        Interruption callback
+        """
+        pass  # Not Implemented
+
+    async def handle_user_input(self, text):
+        """
+        Full sentence process callback
+        """
+        try:
+            logger.info(f"LLM received from user, requesting: {text}'")
+            self.chat_history.append({"role": "user", "content": text})
+            chat_completion = self.client.chat.completions.create(
+                messages=self.chat_history,
+                model="llama-3.3-70b-versatile",
+                tools=Tool.tools_schema[:3],
+                tool_choice="required",
+
+            )
+            message = chat_completion.choices[0].message
+            logger.info(f"LLM response received: {message}")
+        except Exception as e:
+            logger.critical(f"Error{e}")
+        # Check if tools called
+        if message.tool_calls:
+            logger.info(f"LLM Calling {len(message.tool_calls) }tools...")
+
+            # 4. 依次执行工具
+            for tool_call in message.tool_calls:
+                func_name = tool_call.function.name
+                args = tool_call.function.arguments
+                call_id = tool_call.id
+
+                logger.info(f"   -> Execute: {func_name}({args})")
+                result = await Tool.execute(func_name, args, self.agent) or "Success"
+                logger.info(f"   <- Result: {result}")
+
+                # 5. 将结果作为 role='tool' 存入历史
+                self.chat_history.append({
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "name": func_name,
+                    "content": result
+                })
+
+            # 6. 第二轮调用：把工具结果发回给 LLM，获取最终回复
+            logger.info("Second request")
+            final_completion = self.client.chat.completions.create(
+                messages=self.chat_history,
+                model="llama-3.3-70b-versatile",
+                # 第二轮通常不需要再强制 tool_choice，除非是多步复杂任务
+            )
+            final_response = final_completion.choices[0].message.content
+            self.chat_history.append({"role": "assistant", "content": final_response})
+            logger.info(f"Final response: {message.content}")
+            return final_response
+
+        else:
+            # No tool call, output
+            logger.info(f"Final response: {message.content}")
+            return message.content
+
+    def handle_transcript_update(self, text, is_final):
+        pass  # Not Implemented or legacy
+
+    def synthesize_and_play(self, text):
+        pass  # Not Implemented
+
+class FluxListener:
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            with cls._lock:
+                if not cls._instance:
+                    cls._instance = super(FluxListener, cls).__new__(cls)
+        return cls._instance
+
+    def __init__(self):
+        if getattr(self, "_initialized", False):
+            return
+
+        self.dg_client: Optional[AsyncDeepgramClient] = None
+        self.dg_connection = None
+        self.input_stream = None
+        self.is_running = False
+        self._loop = None
+        self._connection_task = None
+
+        # Callback functions container
+        self.on_speech_start: Optional[Callable] = None
+        self.on_transcript_update: Optional[Callable] = None
+        self.on_turn_complete: Optional[Callable] = None
+        self.on_error: Optional[Callable] = None
+
+        self._transcript_buffer = []
+        self._initialized = True
+
+    def initialize(self,
+                   api_key: str,
+                   on_speech_start: Callable = None,
+                   on_turn_complete: Callable = None,
+                   on_transcript_update: Callable = None,
+                   device_index: int = None):
+        """
+        Deepgram and callback functions configuration
+        """
+        self.dg_client = AsyncDeepgramClient(api_key=api_key)
+        self.on_speech_start = on_speech_start
+        self.on_turn_complete = on_turn_complete
+        self.on_transcript_update = on_transcript_update
+        self.device_index = device_index
+
+        logger.info("FluxListener initialized (Singleton).")
+
+    async def start(self):
+        """Connect to Deepgram and Microphone"""
+        if self.is_running:
+            logger.warning("Listener is already running.")
+            return
+
+        # Create or get the event loop
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = asyncio.new_event_loop()
+            threading.Thread(target=self._loop.run_forever, daemon=True).start()
+
+        # Sounddevice input stream
+        try:
+            self.input_stream = sd.InputStream(
+                device=self.device_index,
+                channels=1,
+                samplerate=16000,
+                dtype="int16",
+                callback=self._audio_callback,
+                blocksize=1024
+            )
+            self.input_stream.start()
+            self.is_running = True
+            logger.info("Microphone listening started...")
+
+        except Exception as e:
+            logger.error(f"Microphone Error: {e}")
+            self.stop()
+        await self._run_connection()
+
+    async def _run_connection(self):
+        try:
+            options = {
+                "model": "flux-general-en",
+                "encoding": "linear16",
+                "sample_rate": "16000",
+                "eot_timeout_ms": 1000,
+            }
+
+            # 保持连接打开
+            async with self.dg_client.listen.v2.connect(**options) as connection:
+                self.dg_connection = connection
+                self._register_events(connection)
+                await connection.start_listening()
+
+                # 保持连接活跃，直到 stop() 被调用
+                while self.is_running:
+                    await asyncio.sleep(0.1)
+
+        except Exception as e:
+            logger.error(f"Deepgram Connection Error: {e}")
+            if self.on_error:
+                self.on_error(e)
+
+    def stop(self):
+        """停止监听并释放资源"""
+        self.is_running = False
+
+        if self.input_stream:
+            self.input_stream.stop()
+            self.input_stream.close()
+            self.input_stream = None
+
+        if self._connection_task and not self._connection_task.done():
+            self._connection_task.cancel()
+
+        if self._loop and self._loop.is_running():
+            self._loop.call_soon_threadsafe(self._loop.stop)
+
+        logger.info("FluxListener stopped.")
+
+    def _audio_callback(self, indata, frames, time, status):
+        """Callback for sounddevice"""
+        if status:
+            logger.warning(f"Audio status: {status}")
+
+        if self.dg_connection and self.is_running:
+            if self._loop and self._loop.is_running():
+                self._loop.call_soon_threadsafe(
+                    lambda: asyncio.create_task(
+                        self.dg_connection.send_media(bytes(indata))
+                    )
+                )
+
+    def _dispatch_callback(self, callback, *args):
+        if not callback:
+            return
+        if asyncio.iscoroutinefunction(callback):
+            if self._loop and self._loop.is_running():
+                asyncio.run_coroutine_threadsafe(callback(*args), self._loop)
+            else:
+                logger.error("Event loop is not running, cannot schedule async callback")
+        else:
+            callback(*args)
+
+    def _register_events(self, connection):
+        """Bind the event with external callback functions"""
+
+        def on_message(message):
+            if hasattr(message, 'type'):
+                if message.type == "TurnInfo":
+                    if hasattr(message, 'event') and message.event=='EndOfTurn':
+                        transcript = message.transcript
+                        self._dispatch_callback(self.on_turn_complete, transcript)
+
+            else:
+                print(message)
+        def on_speech_started():
+            """Interrupt"""
+            logger.info(">> User started speaking (Barge-in)")
+            if self.on_speech_start:
+                self.on_speech_start()
+
+        def on_utterance_end():
+            """EOT"""
+            if self._transcript_buffer:
+                full_text = " ".join(self._transcript_buffer).strip()
+                self._transcript_buffer = []
+
+                logger.info(f"End of turn detected. Text: {full_text}")
+
+                if self.on_turn_complete and full_text:
+                    self.on_turn_complete(full_text)
+
+        connection.on(EventType.MESSAGE, on_message)
+        connection.on(EventType.OPEN, lambda _: logger.info("Connection opened"))
+        connection.on(EventType.CLOSE, lambda _: logger.info("Connection closed"))
+        connection.on(EventType.ERROR, lambda error: logger.error(f"Error: {error}"))
+
+async def init_agent_service_groq():
+    # 1. 实例化业务逻辑
+    bot = LLM()
+
+    # 2. 获取单例的听觉模块
+    listener = FluxListener()
+
+    # 3. 初始化并注入依赖 (Dependency Injection)
+    # 关键点：将 bot 的方法传给 listener，实现解耦
+    listener.initialize(
+        api_key=DEEPGRAM_API_KEY,
+        on_speech_start=bot.handle_interruption,       # 绑定打断逻辑
+        on_turn_complete=bot.handle_user_input,        # 绑定对话逻辑
+        on_transcript_update=bot.handle_transcript_update # 绑定 UI 逻辑
+    )
+
+    # 4. 启动
+    print("系统启动中... (按 Ctrl+C 退出)")
+    await listener.start()

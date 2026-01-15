@@ -241,6 +241,7 @@ class VisionService:
                 # B. Hands
                 mp_hand_results = self.hands.process(rgb_frame)
                 hand_data = self._process_hand_results(mp_hand_results, frame.shape)
+                print(f"Hand data: {hand_data}")
 
             else:
                 # Fallback to Haar Cascade (Gray)
