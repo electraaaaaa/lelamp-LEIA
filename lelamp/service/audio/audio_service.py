@@ -207,20 +207,18 @@ class AudioService:
             file_path: Path to audio file
             volume: Volume percentage (0-100)
         """
+        print("sound path:", file_path)
+        import sounddevice as sd
+        import soundfile as sf
+        # import librosa
+        # target_fs = sd.query_devices(kind='output')['default_samplerate']
         try:
-            if file_path.endswith('.mp3'):
-                # Use mpg123 for MP3 with explicit ALSA output (not pulse)
-                cmd = ["mpg123", "-q", "-o", "alsa", "-a", "lelamp_playback", file_path]
-                subprocess.run(cmd, timeout=10, check=False)
-            else:
-                # Use aplay for WAV
-                cmd = ["aplay", "-q", "-D", "lelamp_playback", file_path]
-                subprocess.run(cmd, timeout=10, check=False)
-
+            # data, fs = librosa.load(file_path, sr=target_fs)
+            data, fs = sf.read(file_path, always_2d=True)
+            sd.play(data, fs, latency="high")
+            sd.wait()
             self.logger.debug(f"Played sound: {file_path}")
 
-        except subprocess.TimeoutExpired:
-            self.logger.warning(f"Sound playback timed out: {file_path}")
         except FileNotFoundError as e:
             self.logger.error(f"Audio player not found: {e}")
         except Exception as e:
@@ -360,6 +358,7 @@ class AudioService:
         Background worker that captures audio from lelamp_capture dsnoop
         and calculates RMS level and frequency bars for visualization.
         """
+        return
         BYTES_PER_SAMPLE = 2  # 16-bit audio
         bytes_to_read = self.BLOCK_SIZE * BYTES_PER_SAMPLE
 

@@ -33,8 +33,6 @@ from lelamp.service.alarm import AlarmService
 from lelamp.service.metrics_service import get_metrics_service
 from lelamp.service.datacollection import DataCollectionService
 
-# Import pipelines
-from lelamp.pipelines import run_local_pipeline
 
 
 def check_audio_hardware() -> tuple[bool, bool, str]:
@@ -183,130 +181,23 @@ if __name__ == "__main__":
     # Get pipeline type from config
     pipeline_type = CONFIG.get("pipeline", {}).get("type", "livekit-realtime")
 
-    # Validate credentials based on pipeline type
-    # Support both "livekit-realtime" and legacy "livekit"
-    if pipeline_type in ("livekit-realtime", "livekit"):
-        # Use livekit_service for credential validation
-        if g.livekit_service and not g.livekit_service.is_configured:
-            missing_keys = g.livekit_service.credentials.missing_keys if g.livekit_service.credentials else ["ALL"]
-            logging.warning(f"LiveKit credentials missing: {', '.join(missing_keys)} - disabling agent")
-            agent_enabled = False
+    has_mic, has_speaker, audio_error = check_audio_hardware()
 
-            print("\n" + "="*60)
-            print("LIVEKIT CREDENTIALS MISSING")
-            print("="*60)
-            print(f"Missing: {', '.join(missing_keys)}")
-            print("")
-            print("Configure via WebUI:")
-            print("  1. Open http://<device-ip> in your browser")
-            print("  2. Go to Setup Wizard > AI Backend")
-            print("  3. Enter your OpenAI and LiveKit Cloud credentials")
-            print("")
-            print("Or switch to local AI (no cloud required):")
-            print("  Set pipeline.type: local in config.yaml")
-            print("="*60 + "\n")
-        elif not g.livekit_service:
-            logging.error("LiveKit service not initialized")
-            agent_enabled = False
+    if not has_mic:
+        logging.warning("No microphone detected - disabling voice agent")
+        agent_enabled = False
 
-    elif pipeline_type == "local":
-        logging.info("Using local pipeline (Faster Whisper + Ollama + Piper)")
+    elif not has_speaker:
+        logging.warning("No speaker detected - audio output may not work")
 
-    # Check for audio hardware (required for voice agent)
-    if agent_enabled:
-        has_mic, has_speaker, audio_error = check_audio_hardware()
+    # Keep the process running (for WebUI) but don't start agent
+    def keep_alive(signum, frame):
+        print("\nShutting down...")
+        sys.exit(0)
 
-        if not has_mic:
-            logging.warning("No microphone detected - disabling voice agent")
-            agent_enabled = False
+    signal.signal(signal.SIGINT, keep_alive)
+    signal.signal(signal.SIGTERM, keep_alive)
 
-            print("\n" + "="*60)
-            print("NO MICROPHONE DETECTED")
-            print("="*60)
-            print("The voice agent requires a microphone to function.")
-            print("")
-            print("Please connect USB audio hardware and restart the service.")
-            print("")
-            print("To check available devices:")
-            print("  arecord -l   # List capture devices")
-            print("  aplay -l     # List playback devices")
-            print("")
-            print("WebUI is still available for configuration.")
-            print("="*60 + "\n")
-
-        elif not has_speaker:
-            logging.warning("No speaker detected - audio output may not work")
-            print("\n" + "="*60)
-            print("WARNING: No speaker detected")
-            print("="*60)
-            print("Audio output may not work. Connect USB audio hardware.")
-            print("="*60 + "\n")
-
-    if not agent_enabled:
-        # Only show "disabled" message if agent was explicitly disabled in config
-        # (not if credentials are just missing)
-        if agent_config.get("enabled", True) is False:
-            logging.warning("AI Agent disabled in config.yaml")
-            print("\n" + "="*60)
-            print("AI AGENT DISABLED")
-            print("="*60)
-            print("The AI agent is disabled in config.yaml")
-            print("")
-            print("To enable: set agent.enabled = true and restart")
-            print("="*60 + "\n")
-
-        # Keep the process running (for WebUI) but don't start agent
-        def keep_alive(signum, frame):
-            print("\nShutting down...")
-            sys.exit(0)
-
-        signal.signal(signal.SIGINT, keep_alive)
-        signal.signal(signal.SIGTERM, keep_alive)
-
-        print("Press Ctrl+C to exit...")
-        while True:
-            time.sleep(1)
-    else:
-        # Start appropriate pipeline
-        if pipeline_type == "local":
-            print("\nStarting LOCAL voice pipeline...")
-            asyncio.run(run_local_pipeline())
-        else:
-            # livekit-realtime or legacy livekit
-            provider = CONFIG.get("pipeline", {}).get("provider", "openai")
-            print(f"\nStarting LIVEKIT-REALTIME voice pipeline (provider={provider})...")
-
-            # Run LiveKit agent directly from main thread
-            # (agents.cli.run_app needs to run in main thread for signal handlers)
-            if g.livekit_service:
-                from livekit import agents
-
-                # Set environment variables for LiveKit
-                creds = g.livekit_service.credentials
-                if creds:
-                    os.environ["LIVEKIT_URL"] = creds.url
-                    os.environ["LIVEKIT_API_KEY"] = creds.api_key
-                    os.environ["LIVEKIT_API_SECRET"] = creds.api_secret
-
-                    # Set provider-specific API key
-                    from lelamp.service.livekit.livekit_service import PROVIDER_API_KEYS
-                    provider_key = creds.current_provider_key
-                    env_var = PROVIDER_API_KEYS.get(creds.provider, f"{creds.provider.upper()}_API_KEY")
-                    os.environ[env_var] = provider_key
-                    logging.info(f"Set {env_var} for provider: {creds.provider}")
-
-                # Get worker options and run directly in main thread
-                worker_options = g.livekit_service.get_worker_options()
-                if worker_options:
-                    try:
-                        # agents.cli.run_app(worker_options)
-                        pass
-                    except KeyboardInterrupt:
-                        print("\nShutting down...")
-                    except Exception as e:
-                        logging.error(f"LiveKit agent error: {e}", exc_info=True)
-                else:
-                    logging.error("Failed to get worker options")
-            else:
-                logging.error("LiveKit service not available")
-                print("Error: LiveKit service not initialized")
+    print("Press Ctrl+C to exit...")
+    while True:
+        time.sleep(0.01)

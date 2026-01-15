@@ -12,7 +12,6 @@ This module contains Spotify control function tools including:
 import logging
 import os
 from typing import Optional, Tuple
-from livekit.agents import function_tool
 from lelamp.service.agent.tools import Tool
 
 

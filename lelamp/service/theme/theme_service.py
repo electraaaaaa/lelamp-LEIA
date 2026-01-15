@@ -161,12 +161,17 @@ class ThemeService:
             True if playback started/completed successfully
         """
         try:
-            cmd = ["aplay", "-q", "-D", "lelamp_playback", file_path]
-
+            # cmd = ["aplay", "-q", "-D", "lelamp_playback", file_path]
+            import sounddevice as sd
+            import soundfile as sf
+            data, fs = sf.read(file_path)
+            sd.play(data, fs)
             if blocking:
-                subprocess.run(cmd, timeout=30, check=False)
+                sd.wait()
+                # subprocess.run(cmd, timeout=30, check=False)
             else:
-                subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                pass
+                # subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
             self.logger.debug(f"Playing theme sound: {file_path}")
             return True

@@ -98,7 +98,7 @@ def init_hardware_services():
         logger.info("USB camera not detected (audio capture may fail)")
 
     # LiveKit Service - initialize first (needed for agent)
-    _init_livekit_service(config)
+    # _init_livekit_service(config)
 
     # RGB Service - default enabled
     if config.get("rgb", {}).get("enabled", True):
@@ -118,7 +118,7 @@ def init_hardware_services():
     _init_audio_service(config)
 
     # Microphone Service - for local VAD and echo cancellation
-    _init_microphone_service(config)
+    # _init_microphone_service(config)
 
     # Audio Router - routes processed audio through loopback to LiveKit
     _init_audio_router(config)
@@ -143,6 +143,14 @@ def init_hardware_services():
 
     # Set system volumes
     _set_system_volumes(config)
+
+    import asyncio
+    from lelamp.service.agent.agent_service import init_agent_service
+    def run_async_in_thread():
+        # 直接在线程里运行 asyncio.run
+        asyncio.run(init_agent_service())
+    thread = threading.Thread(target=run_async_in_thread)
+    thread.start()
 
     _hardware_initialized = True
     logger.info("Hardware services initialized")
