@@ -9,6 +9,9 @@ Architecture:
   - Agent (lelamp.py) consumes services from globals
   - This file orchestrates startup and cleanup
 """
+# Ignore warnings from protobuf to keep log clean
+import warnings
+warnings.filterwarnings("ignore", message=".*SymbolDatabase.GetPrototype.*")
 
 import atexit
 import logging
@@ -29,7 +32,6 @@ else:
 
 from lelamp.service.alarm import AlarmService
 from lelamp.service.metrics_service import get_metrics_service
-from lelamp.service.datacollection import DataCollectionService
 
 
 
@@ -89,13 +91,6 @@ save_config = g.save_config
 g.alarm_service = AlarmService()
 g.metrics_service = get_metrics_service()
 
-# Initialize data collection service if enabled
-datacollection_config = CONFIG.get("datacollection", {})
-if datacollection_config.get("enabled", False):
-    g.datacollection_service = DataCollectionService(datacollection_config)
-    g.datacollection_service.start()
-    logging.info("Data collection service started")
-
 
 def cleanup_services():
     """Clean up all services on exit."""
@@ -117,7 +112,7 @@ def cleanup_services():
         (g.audio_service, "Audio service"),
         (g.rgb_service, "RGB service"),
         (g.theme_service, "Theme service"),
-        (g.spotify_service, "Spotify service"),
+        # (g.spotify_service, "Spotify service"),
     ]
 
     for service, name in services:
@@ -170,14 +165,12 @@ if __name__ == "__main__":
 
     # Start WebUI server first - this initializes ALL hardware services
     # Services are stored in globals and used by both WebUI and Agent
+    # Looking into this function will help you understand how the code works
     start_webui_server()
 
     # Check if agent is enabled
     agent_config = CONFIG.get("agent", {})
     agent_enabled = agent_config.get("enabled", True)
-
-    # Get pipeline type from config
-    pipeline_type = CONFIG.get("pipeline", {}).get("type", "livekit-realtime")
 
     has_mic, has_speaker, audio_error = check_audio_hardware()
 

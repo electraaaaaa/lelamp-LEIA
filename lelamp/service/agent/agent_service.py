@@ -33,7 +33,6 @@ from lelamp.functions import (
     SensorFunctions,
     SleepFunctions,
     VisionFunctions,
-    SpotifyFunctions,
     LocationFunctions,
 )
 import lelamp.globals as g
@@ -48,7 +47,7 @@ class Agent(
     SensorFunctions,
     SleepFunctions,
     VisionFunctions,
-    SpotifyFunctions,
+    # SpotifyFunctions,
     LocationFunctions,
 ):
     def __init__(self):
@@ -64,7 +63,6 @@ class Agent(
         """
         # Use provided config or fall back to global
         config = g.CONFIG
-        print(config)
         self.config = config
 
         # Get services from globals (initialized by server.py)
@@ -82,12 +80,6 @@ class Agent(
         # Session references (set by pipeline)
         self.agent_session = None
         self.event_loop = None
-
-        # VAD model reference for dynamic threshold adjustment
-        self.vad_model = None
-        self.vad_config = config.get("vad", {})
-        self.vad_normal_threshold = self.vad_config.get("activation_threshold", 0.35)
-        self.vad_music_threshold = self.vad_config.get("music_threshold", 0.7)
 
         # Sleep mode state
         self.is_sleeping = False

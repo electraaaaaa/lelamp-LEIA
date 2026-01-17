@@ -14,7 +14,6 @@ from .workflow_functions import WorkflowFunctions
 from .sensor_functions import SensorFunctions
 from .sleep_functions import SleepFunctions
 from .vision_functions import VisionFunctions
-from .spotify_functions import SpotifyFunctions
 from .location_functions import LocationFunctions
 
 __all__ = [
@@ -27,6 +26,5 @@ __all__ = [
     'SensorFunctions',
     'SleepFunctions',
     'VisionFunctions',
-    'SpotifyFunctions',
     'LocationFunctions',
 ]

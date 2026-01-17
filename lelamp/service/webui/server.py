@@ -18,23 +18,7 @@ import lelamp.globals as g
 
 logger = logging.getLogger(__name__)
 
-_spotify_service_webui = None
 _hardware_initialized = False
-
-
-def get_spotify_service():
-    """Get Spotify service instance."""
-    global _spotify_service_webui
-
-    if g.lelamp_agent and hasattr(g.lelamp_agent, 'spotify_service'):
-        return g.lelamp_agent.spotify_service
-
-    if _spotify_service_webui is None:
-        from lelamp.service.spotify import SpotifyService
-        spotify_config = g.CONFIG.get("spotify", {})
-        _spotify_service_webui = SpotifyService(spotify_config)
-        _spotify_service_webui.start()
-    return _spotify_service_webui
 
 
 def _check_servo_driver_udev():
@@ -111,11 +95,8 @@ def init_hardware_services():
     else:
         logger.info("Motors disabled in config")
 
-    # Audio Service - always start (needed for system sounds)
+    # Audio Service - always start (needed for playing system sounds)
     _init_audio_service(config)
-
-    # Audio Router - routes processed audio through loopback to LiveKit
-    _init_audio_router(config)
 
     # Theme Service - always start
     _init_theme_service(config)
@@ -129,17 +110,10 @@ def init_hardware_services():
     # Workflow Service - for automation workflows
     _init_workflow_service(config)
 
-    # Spotify Service - if enabled
-    if config.get("spotify", {}).get("enabled", False):
-        _init_spotify_service(config)
-    else:
-        logger.info("Spotify disabled in config")
-
-    # Set the callback function to use gesture control
-    g.vision_service.set_hand_callback(g.animation_service.hand_control_callback)
+    # g.vision_service.set_hand_callback(g.animation_service.hand_control_callback)
 
     # Set system volumes
-    _set_system_volumes(config)
+    # _set_system_volumes(config)
 
     import asyncio
     from lelamp.service.agent.agent_service import init_agent_service
@@ -150,23 +124,6 @@ def init_hardware_services():
 
     _hardware_initialized = True
     logger.info("Hardware services initialized")
-
-
-def _init_livekit_service(config: dict):
-    """Initialize LiveKit service."""
-    from lelamp.service.livekit import init_livekit_service
-
-    try:
-        g.livekit_service = init_livekit_service(config)
-        if g.livekit_service.is_configured:
-            logger.info(f"LiveKit service ready (room={g.livekit_service.room_name})")
-        else:
-            missing = g.livekit_service.credentials.missing_keys if g.livekit_service.credentials else []
-            logger.warning(f"LiveKit not configured. Missing: {', '.join(missing)}")
-    except Exception as e:
-        logger.error(f"LiveKit service failed: {e}")
-        g.livekit_service = None
-
 
 def _init_rgb_service(config: dict):
     """Initialize RGB LED service."""
@@ -264,91 +221,6 @@ def _init_audio_service(config: dict):
         g.audio_service = None
 
 
-def _init_microphone_service(config: dict):
-    """Initialize microphone service with VAD and echo cancellation."""
-    from lelamp.service.audio import MicrophoneService
-
-    try:
-        # Get microphone config (with defaults)
-        mic_config = config.get("microphone", {})
-
-        # Skip if USB camera is not detected - microphone requires it
-        if not g.detect_usb_camera():
-            logger.info("Microphone service skipped - USB camera not detected")
-            g.microphone_service = None
-            return
-
-        # Skip if audio routing is enabled - AudioRouter handles mic processing
-        if mic_config.get("audio_routing_enabled", False):
-            logger.info("Microphone service skipped (AudioRouter handles mic processing)")
-            g.microphone_service = None
-            return
-
-        # Tuning parameters from config
-        vad_threshold = mic_config.get("local_vad_threshold", 0.5)
-        barge_in_threshold = mic_config.get("barge_in_threshold", 0.2)
-        echo_gate_threshold = mic_config.get("echo_gate_threshold", 0.03)
-        gate_release_time = mic_config.get("gate_release_time", 0.5)
-        debug_logging = mic_config.get("debug_logging", False)
-
-        # Create microphone service, linked to audio service for AEC
-        g.microphone_service = MicrophoneService(
-            audio_service=g.audio_service,
-            device="lelamp_capture",
-            vad_threshold=vad_threshold,
-            barge_in_threshold=barge_in_threshold,
-            echo_gate_threshold=echo_gate_threshold,
-            gate_release_time=gate_release_time,
-            debug_logging=debug_logging,
-        )
-        g.microphone_service.start()
-        logger.info(
-            f"Microphone service started ("
-            f"vad={vad_threshold}, barge_in={barge_in_threshold}, "
-            f"gate_release={gate_release_time}s, debug={debug_logging})"
-        )
-    except Exception as e:
-        logger.warning(f"Microphone service failed: {e}")
-        g.microphone_service = None
-
-
-def _init_audio_router(config: dict):
-    """Initialize audio router for processed audio loopback to LiveKit."""
-    from lelamp.service.audio import AudioRouter
-
-    try:
-        # Get config
-        mic_config = config.get("microphone", {})
-        audio_routing_enabled = mic_config.get("audio_routing_enabled", False)
-
-        if not audio_routing_enabled:
-            logger.info("Audio routing disabled in config (set microphone.audio_routing_enabled: true to enable)")
-            g.audio_router = None
-            return
-
-        # Skip if USB camera is not detected - audio router uses the camera mic
-        if not g.detect_usb_camera():
-            logger.info("Audio router skipped - USB camera not detected")
-            g.audio_router = None
-            return
-
-        gate_release_time = mic_config.get("gate_release_time", 0.5)
-
-        # Create audio router, linked to audio service for playback state
-        g.audio_router = AudioRouter(
-            audio_service=g.audio_service,
-            input_device="lelamp_capture_raw",
-            output_device="loopback_sink",
-            gate_during_playback=True,
-            gate_release_delay=gate_release_time,
-        )
-        g.audio_router.start()
-        logger.info(f"Audio router started (gate_release={gate_release_time}s)")
-    except Exception as e:
-        logger.warning(f"Audio router failed: {e}")
-        g.audio_router = None
-
-
 def _init_theme_service(config: dict):
     """Initialize theme service."""
     from lelamp.service.theme import init_theme_service, ThemeSound
@@ -411,25 +283,6 @@ def _init_workflow_service(config: dict):
         logger.warning(f"Workflow service failed: {e}")
         g.workflow_service = None
 
-
-def _init_spotify_service(config: dict):
-    """Initialize Spotify service if enabled."""
-    from lelamp.service.spotify import SpotifyService
-
-    spotify_config = config.get("spotify", {})
-
-    try:
-        g.spotify_service = SpotifyService(spotify_config)
-        if g.spotify_service.start():
-            logger.info("Spotify service started")
-        else:
-            logger.warning("Spotify service failed to start")
-            g.spotify_service = None
-    except Exception as e:
-        logger.warning(f"Spotify service failed: {e}")
-        g.spotify_service = None
-
-
 def _set_system_volumes(config: dict):
     """Set system audio volumes from config."""
     speaker_vol = config.get("volume", 50)
@@ -470,27 +323,8 @@ def start_webui_server() -> threading.Thread:
     def run_server():
         uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
 
-    def run_spotify_callback_server():
-        cert_dir = Path.home() / ".lelamp" / "certs"
-        cert_dir.mkdir(parents=True, exist_ok=True)
-        cert_file = cert_dir / "cert.pem"
-        key_file = cert_dir / "key.pem"
-
-        if not cert_file.exists() or not key_file.exists():
-            subprocess.run([
-                "openssl", "req", "-x509", "-newkey", "rsa:4096",
-                "-keyout", str(key_file), "-out", str(cert_file),
-                "-days", "365", "-nodes", "-subj", "/CN=halox.local"
-            ], check=True, capture_output=True)
-
-        uvicorn.run(app, host="0.0.0.0", port=8888, log_level="warning",
-                   ssl_keyfile=str(key_file), ssl_certfile=str(cert_file))
-
     thread = threading.Thread(target=run_server, daemon=True)
     thread.start()
-
-    spotify_thread = threading.Thread(target=run_spotify_callback_server, daemon=True)
-    spotify_thread.start()
 
     _log_access_urls(port)
     return thread

@@ -13,7 +13,7 @@ import numpy as np
 from typing import Optional, Dict, Callable, Union, List
 from dataclasses import dataclass
 
-# --- 尝试导入 MediaPipe ---
+# --- Attempt to import MediaPipe ---
 try:
     import mediapipe as mp
     MEDIAPIPE_AVAILABLE = True
@@ -22,7 +22,7 @@ except ImportError:
     mp = None
 
 
-# --- 数据结构定义 ---
+# --- Data Structure Definition ---
 
 @dataclass
 class FaceData:
@@ -241,7 +241,6 @@ class VisionService:
                 # B. Hands
                 mp_hand_results = self.hands.process(rgb_frame)
                 hand_data = self._process_hand_results(mp_hand_results, frame.shape)
-                print(f"Hand data: {hand_data}")
 
             else:
                 # Fallback to Haar Cascade (Gray)
