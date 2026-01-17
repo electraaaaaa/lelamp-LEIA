@@ -144,28 +144,28 @@ async def init_agent_service():
 
 class LLM:
     def __init__(self):
-        # 配置
-        self.API_KEY = os.getenv("OPENAI_API_KEY")  # 或者直接填入 "sk-..."
-        # 使用最新的 Realtime 模型
+        # Configuration
+        self.API_KEY = os.getenv("OPENAI_API_KEY")  # Or fill in "sk-..." directly
+        # Use the latest Realtime model
         self.URL = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"#-2024-10-01"
 
-        # 音频配置 (OpenAI Realtime API 标准为 24kHz PCM16 Mono)
+        # Audio configuration (OpenAI Realtime API standard is 24kHz PCM16 Mono)
         self.SAMPLE_RATE = 24000
         self.CHANNELS = 1
         self.DTYPE = 'int16'
-        self.CHUNK_SIZE = 1024  # 每次读取的音频帧大小
+        self.CHUNK_SIZE = 1024  # Size of audio frame read each time
 
-        # 线程安全的队列，用于在音频回调和 asyncio 之间传输数据
+        # Thread-safe queue for transferring data between audio callback and asyncio
         self.input_queue = asyncio.Queue()
         self.output_queue = queue.Queue()
 
         self.agent = Agent()
 
     def _fix_tools_format(self, original_tools):
-        """将 Chat Completion 格式的工具转换为 Realtime API 格式"""
+        """Convert Chat Completion format tools to Realtime API format"""
         fixed_tools = []
         for t in original_tools:
-            # 如果是旧格式 {"type": "function", "function": {"name":...}}
+            # If it is the old format {"type": "function", "function": {"name":...}}
             if "function" in t:
                 func_def = t["function"]
                 fixed_tools.append({
@@ -174,35 +174,35 @@ class LLM:
                     "description": func_def.get("description", ""),
                     "parameters": func_def.get("parameters", {})
                 })
-            # 如果已经是新格式（有 name 在顶层），直接使用
+            # If it is already the new format (with name at the top level), use it directly
             elif "name" in t:
                 fixed_tools.append(t)
         return fixed_tools
 
     def input_callback(self, indata, frames, time, status):
-        """麦克风录音回调：将录到的原始音频数据放入队列"""
+        """Microphone recording callback: put recorded raw audio data into the queue"""
         # if status:
         #     print(status)
-        # 将 numpy array 转换为 bytes
+        # Convert numpy array to bytes
         audio_bytes = indata.tobytes()
-        # 注意：这里我们不能直接用 await，因为这是在非 async 线程中运行
-        # 我们使用 asyncio.run_coroutine_threadsafe 或者简单的 loop.call_soon_threadsafe
-        # 为了简单，我们这里使用 asyncio.Queue 的 put_nowait (如果是在同一个 loop)
-        # 但由于这是跨线程，标准的 queue 配合 async 包装通常更稳健，
-        # 或者直接在主循环中处理。这里为了代码简洁，我们假定 loop 在运行。
+        # Note: We cannot use await directly here because this runs in a non-async thread
+        # We use asyncio.run_coroutine_threadsafe or simple loop.call_soon_threadsafe
+        # For simplicity, we use put_nowait of asyncio.Queue (if in the same loop)
+        # But since this is cross-thread, standard queue with async wrapper is usually more robust,
+        # Or handle directly in the main loop. Here for code brevity, we assume the loop is running.
         try:
             self.loop.call_soon_threadsafe(self.input_queue.put_nowait, audio_bytes)
         except Exception as e:
             pass
 
     async def send_audio(self, websocket):
-        """持续从麦克风队列读取数据并发送给 OpenAI"""
+        """Continuously read data from microphone queue and send to OpenAI"""
         while True:
             audio_bytes = await self.input_queue.get()
-            # Base64 编码
+            # Base64 encoding
             base64_audio = base64.b64encode(audio_bytes).decode('utf-8')
 
-            # 发送 input_audio_buffer.append 事件
+            # Send input_audio_buffer.append event
             event = {
                 "type": "input_audio_buffer.append",
                 "audio": base64_audio
@@ -210,25 +210,25 @@ class LLM:
             await websocket.send(json.dumps(event))
 
     async def receive(self, websocket):
-        """持续接收 OpenAI 的响应并放入播放队列"""
+        """Continuously receive OpenAI responses and put into playback queue"""
         async for message in websocket:
             event = json.loads(message)
             event_type = event.get("type")
             current_stream_type = None
             # print(message)
 
-            # 打印部分日志以便调试
-            # --- 1. 用户语音转录结果 (User Input) ---
-            # 需要在 session 中开启 input_audio_transcription 才会收到此事件
+            # Print some logs for debugging
+            # --- 1. User Voice Transcription Result (User Input) ---
+            # Need to enable input_audio_transcription in session to receive this event
             if event_type == "conversation.item.input_audio_transcription.completed":
                 transcript = event.get("transcript", "").strip()
                 if transcript:
-                    if current_stream_type: print("") # 换行
-                    print(f"[用户语音转录]: {transcript}")
+                    if current_stream_type: print("") # Newline
+                    print(f"[User Voice Transcription]: {transcript}")
                     current_stream_type = None
 
-            # --- 2. AI 文本流式输出 (AI Response) ---
-            # 因为 modalities=["text"]，所以这里监听 response.text.delta 而不是 audio
+            # --- 2. AI Text Streaming Output (AI Response) ---
+            # Because modalities=["text"], we listen to response.text.delta instead of audio
             elif event_type == "response.text.delta":
                 delta = event.get("delta", "")
                 if current_stream_type != "text":
@@ -236,32 +236,32 @@ class LLM:
                     current_stream_type = "text"
                 print(delta, end="", flush=True)
 
-            # --- 3. 响应结束 ---
+            # --- 3. Response Ended ---
             elif event_type == "response.done":
                 if current_stream_type == "text":
-                    print(f"") # 结束颜色
+                    print(f"") # End color
                     current_stream_type = None
 
             elif event['type'] == "response.function_call_arguments.done":
-                # AI 已经生成了完整的函数调用参数
+                # AI has generated complete function call arguments
                 call_id = event["call_id"]
                 name = event["name"]
                 arguments = event["arguments"]
 
-                print(f"\n[System] AI 请求调用工具: {name}({arguments})")
+                print(f"\n[System] AI requests tool call: {name}({arguments})")
                 output_str = await Tool.execute(name, arguments, self.agent)
-                # 1. 创建一个由工具输出组成的新对话项 (Item)
+                # 1. Create a new conversation item (Item) consisting of tool output
                 item_create_event = {
                     "type": "conversation.item.create",
                     "item": {
                         "type": "function_call_output",
-                        "call_id": call_id,  # 必须对应之前的 call_id
+                        "call_id": call_id,  # Must correspond to the previous call_id
                         "output": output_str
                     }
                 }
                 await websocket.send(json.dumps(item_create_event))
 
-                # 2. 告诉 AI："结果给你了，现在请根据这个结果回复我" (触发 response.create)
+                # 2. Tell AI: "Result given to you, now please reply to me based on this result" (triggers response.create)
                 response_create_event = {
                     "type": "response.create",
                     "response": {
@@ -278,19 +278,19 @@ class LLM:
             "OpenAI-Beta": "realtime=v1"
         }
 
-        print("正在连接 OpenAI Realtime API...")
+        print("Connecting to OpenAI Realtime API...")
         async with websockets.connect(self.URL, additional_headers=headers) as websocket:
             system_prompt = "You always think and response in English no matter what language the user speaks. You're a cute lamp who DON'T speak, and the words you say are NOT visible to the user. Use your language as thinking process in your brain. The only way you can interact with the user is calling functions. Use the functions to response the user. For example, when you feel said you should look down and turn led to cold color. When you're happy you should turn your led to warm color and play positive animation. When you're excited you should make your led bright and colorful, and call multiple actions to be hyperactive. For another example, when the user ask you the weather, you can query thr weather first and user warm yellow to represent sunny or cold blue to represent rainy."
-            # 1. 初始化会话 (可选：设置声音、VAD模式等)
+            # 1. Initialize session (Optional: set voice, VAD mode, etc.)
             session_update = {
                 "type": "session.update",
                 "session": {
                     "modalities": ["text"],
-                    "voice": "alloy",  # 可选: alloy, ash, ballad, coral, echo, sage, shimmer, verse
+                    "voice": "alloy",  # Optional: alloy, ash, ballad, coral, echo, sage, shimmer, verse
                     "input_audio_format": "pcm16",
                     "output_audio_format": "pcm16",
                     "turn_detection": {
-                        "type": "server_vad",  # 开启服务端语音活动检测（自动打断、自动回复）
+                        "type": "server_vad",  # Enable server-side voice activity detection (auto interruption, auto reply)
                     },
                     "tools": self._fix_tools_format(Tool.tools_schema),
                     "tool_choice": "auto",
@@ -311,14 +311,14 @@ class LLM:
         )
 
             with input_stream:
-                # 3. 并发运行发送和接收任务
+                # 3. Run send and receive tasks concurrently
                 send_task = asyncio.create_task(self.send_audio(websocket))
                 receive_task = asyncio.create_task(self.receive(websocket))
 
                 try:
                     await asyncio.gather(send_task, receive_task)
                 except KeyboardInterrupt:
-                    print("停止对话...")
+                    print("Stopping conversation...")
 
 if __name__ == "__main__":
     asyncio.run(init_agent_service())
@@ -365,7 +365,7 @@ class LLM_groq:
         if message.tool_calls:
             logger.info(f"LLM Calling {len(message.tool_calls) }tools...")
 
-            # 4. 依次执行工具
+            # 4. Execute tools sequentially
             for tool_call in message.tool_calls:
                 func_name = tool_call.function.name
                 args = tool_call.function.arguments
@@ -375,7 +375,7 @@ class LLM_groq:
                 result = await Tool.execute(func_name, args, self.agent) or "Success"
                 logger.info(f"   <- Result: {result}")
 
-                # 5. 将结果作为 role='tool' 存入历史
+                # 5. Save result as role='tool' into history
                 self.chat_history.append({
                     "role": "tool",
                     "tool_call_id": call_id,
@@ -383,12 +383,12 @@ class LLM_groq:
                     "content": result
                 })
 
-            # 6. 第二轮调用：把工具结果发回给 LLM，获取最终回复
+            # 6. Second round call: send tool result back to LLM to get final reply
             logger.info("Second request")
             final_completion = self.client.chat.completions.create(
                 messages=self.chat_history,
                 model="llama-3.3-70b-versatile",
-                # 第二轮通常不需要再强制 tool_choice，除非是多步复杂任务
+                # Second round usually doesn't need to force tool_choice unless it's a multi-step complex task
             )
             final_response = final_completion.choices[0].message.content
             self.chat_history.append({"role": "assistant", "content": final_response})
@@ -495,13 +495,13 @@ class FluxListener:
                 "eot_timeout_ms": 1000,
             }
 
-            # 保持连接打开
+            # Keep connection open
             async with self.dg_client.listen.v2.connect(**options) as connection:
                 self.dg_connection = connection
                 self._register_events(connection)
                 await connection.start_listening()
 
-                # 保持连接活跃，直到 stop() 被调用
+                # Keep connection active until stop() is called
                 while self.is_running:
                     await asyncio.sleep(0.1)
 
@@ -511,7 +511,7 @@ class FluxListener:
                 self.on_error(e)
 
     def stop(self):
-        """停止监听并释放资源"""
+        """Stop listening and release resources"""
         self.is_running = False
 
         if self.input_stream:
@@ -586,21 +586,21 @@ class FluxListener:
         connection.on(EventType.ERROR, lambda error: logger.error(f"Error: {error}"))
 
 async def init_agent_service_groq():
-    # 1. 实例化业务逻辑
+    # 1. Instantiate business logic
     bot = LLM()
 
-    # 2. 获取单例的听觉模块
+    # 2. Get singleton auditory module
     listener = FluxListener()
 
-    # 3. 初始化并注入依赖 (Dependency Injection)
-    # 关键点：将 bot 的方法传给 listener，实现解耦
+    # 3. Initialize and inject dependencies (Dependency Injection)
+    # Key point: pass bot methods to listener to achieve decoupling
     listener.initialize(
         api_key=DEEPGRAM_API_KEY,
-        on_speech_start=bot.handle_interruption,       # 绑定打断逻辑
-        on_turn_complete=bot.handle_user_input,        # 绑定对话逻辑
-        on_transcript_update=bot.handle_transcript_update # 绑定 UI 逻辑
+        on_speech_start=bot.handle_interruption,       # Bind interruption logic
+        on_turn_complete=bot.handle_user_input,        # Bind conversation logic
+        on_transcript_update=bot.handle_transcript_update # Bind UI logic
     )
 
-    # 4. 启动
-    print("系统启动中... (按 Ctrl+C 退出)")
+    # 4. Start
+    print("System starting... (Press Ctrl+C to exit)")
     await listener.start()

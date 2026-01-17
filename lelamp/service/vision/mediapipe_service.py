@@ -32,8 +32,8 @@ class MediaPipeHandData:
     gesture: str          # "None", "Fist", "Open_Palm", "Victory", "Pointer"
     fingers_up: list      # [thumb to little finger] (bool)
     timestamp: float
-    is_pinching: bool = False      # 是否捏合
-    pinch_distance: float = 0.0    # 捏合的距离 (0.0 - 1.0)，用于模拟量控制
+    is_pinching: bool = False      # Whether pinching
+    pinch_distance: float = 0.0    # Pinch distance (0.0 - 1.0), used for analog control
     landmarks: List[tuple] = None
 
 
@@ -247,43 +247,43 @@ class MediaPipeVisionService:
                 timestamp=time.time()
             )
 
-        # 获取第一只手
+        # Get the first hand
         hand_landmarks = results.multi_hand_landmarks[0]
 
-        # --- 新增：提取所有21个点 ---
-        # 我们存储归一化坐标(0.0-1.0)，方便画图时根据图像尺寸缩放
+        # --- New: Extract all 21 points ---
+        # We store normalized coordinates (0.0-1.0), convenient for scaling according to image size when drawing
         all_landmarks = []
         for lm in hand_landmarks.landmark:
             all_landmarks.append((lm.x, lm.y))
 
-        # 获取左右手信息 (Label: "Left", "Right")
+        # Get left/right hand info (Label: "Left", "Right")
         handedness_info = results.multi_handedness[0].classification[0].label
 
         frame_h, frame_w = frame_shape[:2]
 
-        # 1. 提取手腕位置 (Landmark 0)
+        # 1. Extract wrist position (Landmark 0)
         wrist = hand_landmarks.landmark[0]
         pos_x = (wrist.x * frame_w - frame_w / 2) / (frame_w / 2)
         pos_y = (wrist.y * frame_h - frame_h / 2) / (frame_h / 2)
 
-        # 2. 判断手指状态 (伸直/弯曲)
+        # 2. Determine finger status (straight/bent)
         fingers_up = self._count_fingers(hand_landmarks)
 
-        thumb_tip = hand_landmarks.landmark[4]  # 拇指指尖
-        index_tip = hand_landmarks.landmark[8]  # 食指指尖
+        thumb_tip = hand_landmarks.landmark[4]  # Thumb tip
+        index_tip = hand_landmarks.landmark[8]  # Index finger tip
 
-        # 计算像素距离 (Pixel Distance)
-        # 我们使用像素距离而不是归一化距离，因为像素距离更符合直觉 (如 < 40px)
+        # Calculate Pixel Distance
+        # We use pixel distance instead of normalized distance because pixel distance is more intuitive (e.g. < 40px)
         dx = (thumb_tip.x - index_tip.x) * frame_w
         dy = (thumb_tip.y - index_tip.y) * frame_h
         distance_px = np.sqrt(dx**2 + dy**2)
 
-        # 计算归一化距离 (用于模拟量控制，如 0.0~0.2)
-        # 这里简单除以画面宽度作为一个参考
+        # Calculate normalized distance (for analog control, e.g. 0.0~0.2)
+        # Here simply divide by screen width as a reference
         norm_distance = distance_px / frame_w
 
-        # 判定阈值：根据分辨率调整。320x240下大约30px，640x480下大约60px
-        # 也可以使用相对于手掌大小的动态阈值，但固定阈值最简单有效
+        # Decision threshold: Adjust according to resolution. About 30px at 320x240, about 60px at 640x480
+        # Dynamic threshold relative to palm size can also be used, but fixed threshold is simplest and effective
         PINCH_THRESHOLD_PX = 40
         is_pinching = distance_px < PINCH_THRESHOLD_PX# and fingers_up == [1,1,0,0,0]
 
@@ -302,29 +302,29 @@ class MediaPipeVisionService:
         )
 
     def _count_fingers(self, landmarks):
-        """判断5根手指是否伸直，返回 [1,0,1,1,1] 格式"""
+        """Determine if 5 fingers are straight, return [1,0,1,1,1] format"""
         fingers = []
 
-        # 关键点索引
-        # 拇指: 4, 食指: 8, 中指: 12, 无名指: 16, 小指: 20
-        # 关节索引: 拇指(3), 其他(6, 10, 14, 18)
+        # Key point index
+        # Thumb: 4, Index: 8, Middle: 12, Ring: 16, Pinky: 20
+        # Joint index: Thumb(3), Others(6, 10, 14, 18)
 
-        # 1. 拇指处理 (比较x坐标，因为拇指是侧向运动)
-        # 注意：左右手拇指判断方向相反，这里做一个简化版通用判断
-        # 更好的方式是根据 handedness 判断，这里简单判断指尖是否远离手掌中心(9号点)
+        # 1. Thumb processing (compare x coordinate, because thumb moves laterally)
+        # Note: Left and right hand thumb directions are opposite, here makes a simplified generic judgment
+        # Better way is to judge based on handedness, here simply judge if fingertip is away from palm center (point 9)
         thumb_tip = landmarks.landmark[4]
         thumb_ip = landmarks.landmark[3]
         pinky_mcp = landmarks.landmark[17]
 
-        # 简单的距离判断：如果拇指指尖离小指根部 比 拇指关节离小指根部 远，则视为伸直
+        # Simple distance judgment: If thumb tip is further from pinky base than thumb joint is from pinky base, it is considered straight
         dist_tip = np.sqrt((thumb_tip.x - pinky_mcp.x)**2 + (thumb_tip.y - pinky_mcp.y)**2)
         dist_ip = np.sqrt((thumb_ip.x - pinky_mcp.x)**2 + (thumb_ip.y - pinky_mcp.y)**2)
         fingers.append(1 if dist_tip > dist_ip else 0)
 
-        # 2. 其他四指 (比较y坐标，指尖需要在关节上方)
-        # 注意：OpenCV坐标系y轴向下，所以“上方”意味着y值更小
+        # 2. Other four fingers (compare y coordinate, fingertip needs to be above joint)
+        # Note: OpenCV coordinate system y-axis is downward, so "above" means y value is smaller
         tips = [8, 12, 16, 20]
-        pips = [6, 10, 14, 18] # 近指关节
+        pips = [6, 10, 14, 18] # Proximal interphalangeal joints
 
         for tip, pip in zip(tips, pips):
             if landmarks.landmark[tip].y < landmarks.landmark[pip].y:
@@ -439,31 +439,31 @@ if __name__ == "__main__":
     # from vision_service import MediaPipeVisionService, MediaPipeFaceData, MediaPipeHandData
 
     class VisionVisualizer:
-        """视觉可视化工具类：负责将数据画在图像上"""
+        """Vision Visualizer Class: Responsible for drawing data on images"""
         HAND_CONNECTIONS = [
-            (0, 1), (1, 2), (2, 3), (3, 4),           # 拇指
-            (0, 5), (5, 6), (6, 7), (7, 8),           # 食指
-            (0, 9), (9, 10), (10, 11), (11, 12),      # 中指
-            (0, 13), (13, 14), (14, 15), (15, 16),    # 无名指
-            (0, 17), (17, 18), (18, 19), (19, 20),    # 小指
-            (5, 9), (9, 13), (13, 17)                 # 手掌横向连接 (可选)
+            (0, 1), (1, 2), (2, 3), (3, 4),           # Thumb
+            (0, 5), (5, 6), (6, 7), (7, 8),           # Index
+            (0, 9), (9, 10), (10, 11), (11, 12),      # Middle
+            (0, 13), (13, 14), (14, 15), (15, 16),    # Ring
+            (0, 17), (17, 18), (18, 19), (19, 20),    # Pinky
+            (5, 9), (9, 13), (13, 17)                 # Palm lateral connection (optional)
         ]
         @staticmethod
         def draw_hand_skeleton(image, hand_data):
-            """绘制精美的手部骨架"""
+            """Draw beautiful hand skeleton"""
             if not hand_data or not hand_data.detected or not hand_data.landmarks:
                 return
 
             h, w = image.shape[:2]
             points = []
 
-            # 1. 将归一化坐标转换为像素坐标
+            # 1. Convert normalized coordinates to pixel coordinates
             for lm in hand_data.landmarks:
                 px, py = int(lm[0] * w), int(lm[1] * h)
                 points.append((px, py))
 
-            # 2. 绘制骨骼连线
-            # 根据是否捏合改变骨架颜色 (捏合时变红，平时为黄色)
+            # 2. Draw bone connections
+            # Change skeleton color based on whether pinching (red when pinching, yellow usually)
             bone_color = (0, 0, 255) if hand_data.is_pinching else (0, 255, 255)
 
             for start_idx, end_idx in VisionVisualizer.HAND_CONNECTIONS:
@@ -471,27 +471,27 @@ if __name__ == "__main__":
                 pt2 = points[end_idx]
                 cv2.line(image, pt1, pt2, bone_color, 2, cv2.LINE_AA)
 
-            # 3. 绘制关键点 (关节)
+            # 3. Draw key points (joints)
             for i, (px, py) in enumerate(points):
-                # 指尖 (4, 8, 12, 16, 20) 画大一点的圆
+                # Fingertips (4, 8, 12, 16, 20) draw larger circles
                 if i in [4, 8, 12, 16, 20]:
                     radius = 6
-                    color = (0, 255, 0) # 绿色指尖
+                    color = (0, 255, 0) # Green fingertip
                 else:
                     radius = 4
-                    color = (0, 0, 255) # 红色关节
+                    color = (0, 0, 255) # Red joint
 
                 cv2.circle(image, (px, py), radius, color, -1)
-                # 可选：绘制点号用于调试
+                # Optional: Draw point number for debugging
                 # cv2.putText(image, str(i), (px+5, py-5), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255,255,255), 1)
 
-            # 4. 特别标注捏合线 (拇指与食指)
+            # 4. Specially mark pinch line (thumb and index finger)
             if hand_data.is_pinching:
                 thumb_tip = points[4]
                 index_tip = points[8]
-                # 画一条显眼的线连接两指
+                # Draw a conspicuous line connecting two fingers
                 cv2.line(image, thumb_tip, index_tip, (255, 0, 255), 4)
-                # 画中心点
+                # Draw center point
                 cx, cy = (thumb_tip[0] + index_tip[0]) // 2, (thumb_tip[1] + index_tip[1]) // 2
                 cv2.circle(image, (cx, cy), 8, (255, 0, 255), -1)
 
@@ -503,22 +503,22 @@ if __name__ == "__main__":
             h, w = image.shape[:2]
             cx, cy = int((face_data.position[0] + 1) / 2 * w), int((face_data.position[1] + 1) / 2 * h)
 
-            # 1. 画人脸中心十字
+            # 1. Draw face center cross
             cv2.line(image, (cx - 20, cy), (cx + 20, cy), (0, 255, 0), 2)
             cv2.line(image, (cx, cy - 20), (cx, cy + 20), (0, 255, 0), 2)
 
-            # 2. 显示头部姿态数据 (Pitch, Yaw, Roll)
+            # 2. Display head pose data (Pitch, Yaw, Roll)
             pose = face_data.head_pose
             text = f"Face: P:{pose['pitch']:.1f} Y:{pose['yaw']:.1f} R:{pose['roll']:.1f}"
             cv2.putText(image, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
-            # 3. 简单的姿态指示条 (Yaw - 左右转头)
+            # 3. Simple pose indicator bar (Yaw - turn head left/right)
             bar_x = 50
             bar_y = 60
             bar_w = 100
-            # 绘制背景条
+            # Draw background bar
             cv2.rectangle(image, (bar_x, bar_y), (bar_x + bar_w, bar_y + 10), (100, 100, 100), -1)
-            # 绘制游标 (映射 yaw -45 到 45 度)
+            # Draw cursor (map yaw -45 to 45 degrees)
             yaw_norm = np.clip(pose['yaw'], -45, 45)
             cursor_x = int(bar_x + bar_w/2 + (yaw_norm / 45) * (bar_w/2))
             cv2.circle(image, (cursor_x, bar_y + 5), 5, (0, 255, 255), -1)
@@ -532,23 +532,23 @@ if __name__ == "__main__":
             h, w = image.shape[:2]
             wx, wy = int((hand_data.position[0] + 1) / 2 * w), int((hand_data.position[1] + 1) / 2 * h)
 
-            # 1. 标记手腕位置
+            # 1. Mark wrist position
             color = (255, 0, 0) if hand_data.handedness == "Right" else (0, 0, 255)
             cv2.circle(image, (wx, wy), 8, color, -1)
             cv2.putText(image, hand_data.handedness[0], (wx-5, wy+5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
-            # 2. 显示手势名称
+            # 2. Display gesture name
             cv2.putText(image, f"Gesture: {hand_data.gesture}", (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
 
-            # 3. 捏合状态可视化 (Pinch Visualization)
+            # 3. Pinch status visualization (Pinch Visualization)
             if hand_data.is_pinching:
-                # 在右上角显示巨大的红色警告
+                # Display huge red warning in top right corner
                 cv2.putText(image, "PINCHING!", (w - 150, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 3)
 
-                # 显示捏合力度条
+                # Display pinch force bar
                 cv2.rectangle(image, (w - 30, 100), (w - 10, 200), (50, 50, 50), -1)
-                # distance 越小，捏得越紧，填充越高
-                # 假设 pinch_distance 0.0 ~ 0.2
+                # The smaller the distance, the tighter the pinch, the higher the fill
+                # Assume pinch_distance 0.0 ~ 0.2
                 fill_h = int((1.0 - (hand_data.pinch_distance * 5)) * 100)
                 fill_h = np.clip(fill_h, 0, 100)
                 cv2.rectangle(image, (w - 30, 200 - fill_h), (w - 10, 200), (0, 0, 255), -1)
@@ -562,119 +562,119 @@ if __name__ == "__main__":
     # from visualizer import VisionVisualizer
 
     def run_unit_test():
-        # 1. 配置参数
+        # 1. Configuration parameters
         RESOLUTION = (640, 480)
         FPS = 20
         OUTPUT_FILE = f"test_output_{datetime.now().strftime('%H%M%S')}.avi"
 
-        # 2. 初始化服务
-        # 注意：我们使用一个 trick，通过主线程的 VideoCapture 还是让服务自己管理？
-        # 为了测试原汁原味的 Service，让 Service 自己管理摄像头。
-        # 但为了获取图像，我们需要 Service 暴露出 latest_frame。
-        # 如果不想改 Service 源码，我们在主循环里利用 OpenCV 的摄像头独占特性有点难。
-        # *** 最佳方案：修改 Service 或 继承 ***
+        # 2. Initialize service
+        # Note: We use a trick, should we use the main thread's VideoCapture or let the service manage it itself?
+        # To test the original Service, let the Service manage the camera itself.
+        # But in order to get the image, we need the Service to expose latest_frame.
+        # If we don't want to modify the Service source code, it is difficult to use the camera exclusive feature of OpenCV in the main loop.
+        # *** Best solution: Modify Service or inherit ***
 
         class DebugVisionService(MediaPipeVisionService):
-            """继承原服务，增加获取当前帧的方法用于Debug"""
+            """Inherit from the original service, add a method to get the current frame for Debug"""
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, **kwargs)
                 self._current_frame = None
                 self._frame_lock = threading.Lock()
 
-            # 重写 _camera_loop 的一部分是很困难的，
-            # 所以我们在外部通过 callback 获取数据，
-            # 但我们需要 frame。
-            # 既然是单元测试，我们假设你已经在 Service 类中添加了 self.latest_frame
-            # 或者我们在这里使用一种 Hack 方式：
+            # It is difficult to rewrite part of _camera_loop,
+            # so we get data via callback externally,
+            # but we need the frame.
+            # Since it is a unit test, we assume you have added self.latest_frame in the Service class
+            # Or we use a Hack here:
 
-            # 实际上，最简单的测试方法是：不要用 Service 的内部摄像头，
-            # 而是测试程序读取摄像头，把图传给 Service 处理。
-            # 但你的 Service 是设计为自己管理摄像头的。
+            # In fact, the simplest test method is: do not use the internal camera of the Service,
+            # but the test program reads the camera and passes the image to the Service for processing.
+            # But your Service is designed to manage the camera itself.
 
-            # 让我们使用 "Queue" 模式，并假设我们在 callback 里没法拿到 frame。
-            # 这是一个常见的设计痛点。
-            # 在此测试中，我们让 Visualizer 画在一个 空白/黑色 背景上，
-            # 或者我们稍微修改 Service 逻辑。
+            # Let's use the "Queue" pattern, and assume we can't get the frame in the callback.
+            # This is a common design pain point.
+            # In this test, we let Visualizer draw on a blank/black background,
+            # or we modify the Service logic slightly.
             pass
 
         # ==========================================
-        # 实际测试逻辑
+        # Actual test logic
         # ==========================================
-        print("初始化服务...")
+        print("Initializing service...")
         service = MediaPipeVisionService(camera_index=0, resolution=RESOLUTION, fps=FPS)
 
-        # 准备视频保存
+        # Prepare video saving
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
         out = cv2.VideoWriter(OUTPUT_FILE, fourcc, FPS, RESOLUTION)
 
-        # 线程通信队列
-        # 格式: (face_data, hand_data)
+        # Thread communication queue
+        # Format: (face_data, hand_data)
         data_queue = Queue(maxsize=10)
 
-        # 定义回调函数：当有新数据时触发
+        # Define callback function: triggered when there is new data
         def tracking_callback(face_data, hand_data=None):
-            # 注意：原来的 callback 签名可能只支持一个参数
-            # 我们这里为了演示，假设我们在 Service 里改成了支持双数据回调
-            # 或者我们分别注册两个 callback，放入同一个队列
+            # Note: The original callback signature might only support one parameter
+            # We assume here for demonstration that we changed it in Service to support dual data callback
+            # Or we register two callbacks separately and put them into the same queue
             pass
 
-        # 分别注册回调
+        # Register callbacks separately
         def on_face(data):
-            # 这是一个简单的同步机制：
-            # 我们用一个全局字典暂存数据，每帧由主线程合成
+            # This is a simple synchronization mechanism:
+            # We use a global dictionary to temporarily store data, synthesized by the main thread every frame
             pass
 
-        # --- 更好的主循环方案 ---
-        # 不完全依赖 callback 做绘图，而是用 callback 更新状态，主线程 loop 绘图
+        # --- Better main loop solution ---
+        # Do not rely entirely on callback for drawing, but use callback to update state, and main thread loop for drawing
 
         service.start()
 
-        # 给摄像头一点预热时间
+        # Give the camera a little warm-up time
         time.sleep(2.0)
 
-        print(f"开始录制，结果将保存至 {OUTPUT_FILE}")
-        print("按 'q' 退出测试")
+        print(f"Start recording, results will be saved to {OUTPUT_FILE}")
+        print("Press 'q' to exit test")
 
         try:
             while True:
                 loop_start = time.time()
 
-                # 1. 核心 Hacker 步骤：获取 Service 内部的 Frame
-                # 由于 Python 的动态特性，我们可以直接访问 Service 实例的 cap
-                # 但 cap.read() 不是线程安全的。
-                # 最稳妥的方式：Service 应该有一个 get_debug_frame() 方法。
+                # 1. Core Hacker step: Get the internal Frame of the Service
+                # Due to the dynamic nature of Python, we can directly access the cap of the Service instance
+                # But cap.read() is not thread-safe.
+                # The safest way: Service should have a get_debug_frame() method.
 
-                # 这里演示如果你的 Service 没有提供 frame 访问接口，
-                # 我们只能画在黑板上，或者侵入式获取。
-                # 假设你在 VisionService 中添加了: self.latest_debug_frame = frame
+                # Here demonstrates if your Service does not provide frame access interface,
+                # we can only draw on the blackboard, or get it intrusively.
+                # Assume you added: self.latest_debug_frame = frame in VisionService
 
-                # --- 模拟获取帧 (如果 Service 中没有 exposed frame，这里会报错) ---
-                # 请在 MediaPipeVisionService 的 _camera_loop 中添加:
+                # --- Simulate getting frame (if no exposed frame in Service, this will error) ---
+                # Please add in _camera_loop of MediaPipeVisionService:
                 # self.latest_debug_frame = frame.copy()
 
                 frame = None
-                if hasattr(service, 'latest_face_data'): # 这是一个不完美的检查
-                    # 我们尝试直接访问 service._camera_thread 中的变量是不安全的
+                if hasattr(service, 'latest_face_data'): # This is an imperfect check
+                    # We try to access variables in service._camera_thread directly is unsafe
                     pass
 
-                # 为了让这个测试跑起来，我们创建一个可视化背景
+                # To make this test run, we create a visualization background
                 canvas = np.zeros((RESOLUTION[1], RESOLUTION[0], 3), dtype=np.uint8)
 
-                # 2. 获取数据 (线程安全读取)
+                # 2. Get data (thread-safe read)
                 face_data = service.get_face_data()
-                hand_data = service.get_hand_data() # 需要确保 Service 有这个方法
+                hand_data = service.get_hand_data() # Need to ensure Service has this method
 
-                # 3. 绘制
+                # 3. Draw
                 VisionVisualizer.draw_face_info(canvas, face_data)
                 VisionVisualizer.draw_hand_info(canvas, hand_data)
                 VisionVisualizer.draw_hand_skeleton(canvas, hand_data)
 
-                # 4. 如果你想看摄像头的图，
-                # 必须修改 Service 代码，增加 `self.debug_frame = frame`
-                # 假设我们已经修改了，代码如下：
+                # 4. If you want to see the camera image,
+                # Must modify Service code, add `self.debug_frame = frame`
+                # Assume we have modified it, code as follows:
                 if hasattr(service, 'debug_frame') and service.debug_frame is not None:
-                    # 使用摄像头原图覆盖黑色背景
-                    with service._face_lock: # 借用一下锁
+                    # Use camera original image to cover black background
+                    with service._face_lock: # Borrow lock
                         canvas = service.debug_frame.copy()
                     VisionVisualizer.draw_face_info(canvas, face_data)
                     VisionVisualizer.draw_hand_info(canvas, hand_data)
@@ -685,14 +685,14 @@ if __name__ == "__main__":
                     cv2.putText(canvas, "(Modify Service to expose self.debug_frame)", (10, 230),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,255), 1)
 
-                # 5. 显示和保存
+                # 5. Display and save
                 # cv2.imshow("Vision Service Unit Test", canvas)
                 out.write(canvas)
 
                 if cv2.waitKey(1) & 0xFF == ord('q'):
                     break
 
-                # 维持 FPS
+                # Maintain FPS
                 elapsed = time.time() - loop_start
                 wait = max(0, (1.0/FPS) - elapsed)
                 time.sleep(wait)
@@ -703,5 +703,5 @@ if __name__ == "__main__":
             service.stop()
             out.release()
             cv2.destroyAllWindows()
-            print("测试结束。")
+            print("Test finished.")
     run_unit_test()

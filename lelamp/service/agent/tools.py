@@ -37,7 +37,7 @@ class Tool:
         return tool
     @classmethod
     async def execute(cls, name, args_json, instance):
-        """执行工具并返回字符串结果"""
+        """Execute tool and return string result"""
         if name not in cls.tool_registry:
             return f"Error: Tool {name} not found"
         try:
@@ -45,13 +45,13 @@ class Tool:
             args = json.loads(args_json)
             if hasattr(instance, name):
                 bound_method = getattr(instance, name)
-                # 检查是否是协程 (async)
+                # Check if it is a coroutine (async)
                 if inspect.iscoroutinefunction(bound_method):
                     result = await bound_method(**args)
                 else:
                     result = bound_method(**args)
             else:
-                # 静态函数或普通函数的情况
+                # Case of static function or normal function
                 if inspect.iscoroutinefunction(func):
                     result = await func(**args)
                 else:

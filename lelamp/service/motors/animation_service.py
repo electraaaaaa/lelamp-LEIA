@@ -811,86 +811,86 @@ class AnimationService:
 
     def hand_control_callback(self, hand_data):
         """
-        MediaPipe 手部追踪回调函数。
-        当检测到“捏合”手势时，控制 Robot 跟随手部移动。
+        MediaPipe hand tracking callback function.
+        Controls Robot to follow hand movement when "pinching" gesture is detected.
 
         Args:
-            hand_data: MediaPipeHandData 对象
+            hand_data: MediaPipeHandData object
         """
-        # 引用外部的` animation_service 实例
-        # 实际使用时，你可能需要将其作为类的成员方法，或者使用闭包/全局变量
+        # Reference external animation_service instance
+        # In actual use, you may need to make it a class member method, or use closure/global variable
 
-        # 1. 基础检查：是否检测到手
+        # 1. Basic check: Is hand detected
         if not hand_data.detected:
             return
 
-        # 2. 核心逻辑：只有在“捏合”状态下才控制电机
+        # 2. Core logic: Control motors only in "pinching" state
         if hand_data.is_pinching:
-            # 获取归一化坐标 (-1.0 ~ 1.0)
+            # Get normalized coordinates (-1.0 ~ 1.0)
             x, y = hand_data.position
 
-            # 3. 计算目标角度
+            # 3. Calculate target angles
             target_yaw, target_pitch = self.calculate_hand_target_angles(x, y)
 
-            # 4. 构造指令包
-            # 注意：这里假设控制的是底座(base_yaw)和头部(base_pitch/head_pitch)
-            # 具体的关节名称需参考你的 robots_config 或 calibration
+            # 4. Construct command packet
+            # Note: Assuming control of base (base_yaw) and head (base_pitch/head_pitch)
+            # Specific joint names need to refer to your robots_config or calibration
             action = {
                 'base_yaw.pos': target_yaw,
-                'base_pitch.pos': target_pitch  # 或者 'head_pitch.pos'，取决于你的配置
+                'base_pitch.pos': target_pitch  # Or 'head_pitch.pos', depending on your config
             }
 
-            # 5. 发送指令
-            # 检查 robot 是否连接，避免报错
+            # 5. Send command
+            # Check if robot is connected to avoid errors
             if self.robot:
                 try:
-                    # 使用非阻塞锁尝试发送，防止在这个高频回调中卡死
+                    # Try to acquire lock non-blocking, prevent freezing in this high-frequency callback
                     if self._bus_lock.acquire(blocking=False):
                         self.robot.send_action(action)
                         self._bus_lock.release()
 
-                        # 可选：打印调试信息
+                        # Optional: Print debug info
                         # print(f"👆 Pinching! Moving to Yaw: {target_yaw:.1f}, Pitch: {target_pitch:.1f}")
                 except Exception as e:
                     print(f"Error sending hand action: {e}")
 
         else:
-            # 可选：当不捏合时，不做任何事，或者让它慢慢回到原点
+            # Optional: Do nothing when not pinching, or let it slowly return to origin
             pass
 
     def calculate_hand_target_angles(self, x: float, y: float) -> tuple[float, float]:
         """
-        根据手部位置计算目标电机角度。
+        Calculate target motor angles based on hand position.
 
         Args:
-            x: 手部水平位置 (-1.0 左 到 1.0 右)
-            y: 手部垂直位置 (-1.0 上 到 1.0 下)
+            x: Hand horizontal position (-1.0 Left to 1.0 Right)
+            y: Hand vertical position (-1.0 Up to 1.0 Down)
 
         Returns:
-            (target_yaw, target_pitch): 目标偏航角和俯仰角
+            (target_yaw, target_pitch): Target yaw and pitch angles
         """
-        # 定义电机移动的最大范围（度）
-        # 你可以根据实际需要调整这些值
-        MAX_YAW_ANGLE = 60.0    # 左右最大各转 60 度
-        MAX_PITCH_ANGLE = 30.0  # 上下最大各转 30 度
+        # Define maximum motor movement range (degrees)
+        # You can adjust these values according to actual needs
+        MAX_YAW_ANGLE = 60.0    # Max 60 degrees left/right
+        MAX_PITCH_ANGLE = 30.0  # Max 30 degrees up/down
 
-        # 定义死区 (Deadzone)，忽略过于微小的抖动
+        # Define Deadzone, ignore tiny jitters
         DEADZONE = 0.05
 
         if abs(x) < DEADZONE: x = 0.0
         if abs(y) < DEADZONE: y = 0.0
 
-        # 计算 Yaw (左右旋转)
-        # x > 0 (右侧) -> Yaw 正值 (右转)
+        # Calculate Yaw (Left/Right rotation)
+        # x > 0 (Right side) -> Yaw positive (Turn right)
         target_yaw = x * MAX_YAW_ANGLE
 
-        # 计算 Pitch (上下俯仰)
-        # MediaPipe y: -1.0 (顶端) 到 1.0 (底端)
-        # 舵机通常: 负值向上仰，正值向下低头
-        # 因此直接映射即可
+        # Calculate Pitch (Up/Down pitch)
+        # MediaPipe y: -1.0 (Top) to 1.0 (Bottom)
+        # Servo usually: Negative value tilts up, positive value bows down
+        # So map directly
         target_pitch = y * MAX_PITCH_ANGLE
 
-        # 限制角度在安全范围内 (Clamp)
+        # Clamp angles within safe range
         target_yaw = max(-MAX_YAW_ANGLE, min(MAX_YAW_ANGLE, target_yaw))
         target_pitch = max(-MAX_PITCH_ANGLE, min(MAX_PITCH_ANGLE, target_pitch))
 
