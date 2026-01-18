@@ -189,3 +189,99 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, keep_alive)
     signal.signal(signal.SIGTERM, keep_alive)
 
+    if not has_mic:
+        logging.warning("No microphone detected - disabling voice agent")
+        agent_enabled = False
+
+        print("\n" + "="*60)
+        print("NO MICROPHONE DETECTED")
+        print("="*60)
+        print("The voice agent requires a microphone to function.")
+        print("")
+        print("Please connect USB audio hardware and restart the service.")
+        print("")
+        print("To check available devices:")
+        print("  arecord -l   # List capture devices")
+        print("  aplay -l     # List playback devices")
+        print("")
+        print("WebUI is still available for configuration.")
+        print("="*60 + "\n")
+
+    elif not has_speaker:
+        logging.warning("No speaker detected - audio output may not work")
+        print("\n" + "="*60)
+        print("WARNING: No speaker detected")
+        print("="*60)
+        print("Audio output may not work. Connect USB audio hardware.")
+        print("="*60 + "\n")
+
+    if not agent_enabled:
+        # Only show "disabled" message if agent was explicitly disabled in config
+        # (not if credentials are just missing)
+        if agent_config.get("enabled", True) is False:
+            logging.warning("AI Agent disabled in config.yaml")
+            print("\n" + "="*60)
+            print("AI AGENT DISABLED")
+            print("="*60)
+            print("The AI agent is disabled in config.yaml")
+            print("")
+            print("To enable: set agent.enabled = true and restart")
+            print("="*60 + "\n")
+
+        # Keep the process running (for WebUI) but don't start agent
+        def keep_alive(signum, frame):
+            print("\nShutting down...")
+            sys.exit(0)
+
+        signal.signal(signal.SIGINT, keep_alive)
+        signal.signal(signal.SIGTERM, keep_alive)
+
+        print("Press Ctrl+C to exit...")
+        while True:
+            time.sleep(1)
+    else:
+        # Start appropriate pipeline
+        if pipeline_type == "local":
+            print("\nStarting LOCAL voice pipeline...")
+            asyncio.run(run_local_pipeline())
+        else:
+            # livekit-realtime or legacy livekit
+            provider = CONFIG.get("pipeline", {}).get("provider", "openai")
+            print(f"\nStarting LIVEKIT-REALTIME voice pipeline (provider={provider})...")
+
+            # Run LiveKit agent directly from main thread
+            # (agents.cli.run_app needs to run in main thread for signal handlers)
+            if g.livekit_service:
+                from livekit import agents
+
+                # Set environment variables for LiveKit
+                creds = g.livekit_service.credentials
+                if creds:
+                    os.environ["LIVEKIT_URL"] = creds.url
+                    os.environ["LIVEKIT_API_KEY"] = creds.api_key
+                    os.environ["LIVEKIT_API_SECRET"] = creds.api_secret
+
+                    # Set provider-specific API key
+                    from lelamp.service.livekit.livekit_service import PROVIDER_API_KEYS
+                    provider_key = creds.current_provider_key
+                    env_var = PROVIDER_API_KEYS.get(creds.provider, f"{creds.provider.upper()}_API_KEY")
+                    os.environ[env_var] = provider_key
+                    logging.info(f"Set {env_var} for provider: {creds.provider}")
+
+                # Get worker options and run directly in main thread
+                worker_options = g.livekit_service.get_worker_options()
+                if worker_options:
+                    try:
+                        agents.cli.run_app(worker_options)
+                    except KeyboardInterrupt:
+                        print("\nShutting down...")
+                    except Exception as e:
+                        logging.error(f"LiveKit agent error: {e}", exc_info=True)
+                else:
+                    logging.error("Failed to get worker options")
+            else:
+                logging.error("LiveKit service not available")
+                print("Error: LiveKit service not initialized")
+
+
+    
